@@ -1,0 +1,218 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+.wallet-trade-dropdown {
+  container-type: inline-size;
+}
+
+.wallet-trade-columns {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@container (min-width: 560px) {
+  .wallet-trade-columns {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+:root {
+  /* Default: Electric Blue & Purple */
+  --theme-primary: #3b82f6;
+  --theme-primary-hover: #60a5fa;
+  --theme-secondary: #a855f7;
+  --theme-secondary-hover: #c084fc;
+  --theme-accent: #6366f1;
+  --theme-glow-primary: rgba(59, 130, 246, 0.35);
+  --theme-glow-secondary: rgba(168, 85, 247, 0.35);
+  --theme-bg-radial-1: rgba(59, 130, 246, 0.04);
+  --theme-bg-radial-2: rgba(168, 85, 247, 0.04);
+}
+
+html[data-theme="blue-purple"] {
+  --theme-primary: #3b82f6;
+  --theme-primary-hover: #60a5fa;
+  --theme-secondary: #a855f7;
+  --theme-secondary-hover: #c084fc;
+  --theme-accent: #6366f1;
+  --theme-glow-primary: rgba(59, 130, 246, 0.35);
+  --theme-glow-secondary: rgba(168, 85, 247, 0.35);
+  --theme-bg-radial-1: rgba(59, 130, 246, 0.04);
+  --theme-bg-radial-2: rgba(168, 85, 247, 0.04);
+}
+
+html[data-theme="cyan-violet"] {
+  --theme-primary: #06b6d4;
+  --theme-primary-hover: #38bdf8;
+  --theme-secondary: #8b5cf6;
+  --theme-secondary-hover: #a78bfa;
+  --theme-accent: #3b82f6;
+  --theme-glow-primary: rgba(6, 182, 212, 0.35);
+  --theme-glow-secondary: rgba(139, 92, 246, 0.35);
+  --theme-bg-radial-1: rgba(6, 182, 212, 0.04);
+  --theme-bg-radial-2: rgba(139, 92, 246, 0.04);
+}
+
+html[data-theme="indigo-lavender"] {
+  --theme-primary: #6366f1;
+  --theme-primary-hover: #818cf8;
+  --theme-secondary: #c084fc;
+  --theme-secondary-hover: #e879f9;
+  --theme-accent: #3b82f6;
+  --theme-glow-primary: rgba(99, 102, 241, 0.35);
+  --theme-glow-secondary: rgba(192, 132, 252, 0.35);
+  --theme-bg-radial-1: rgba(99, 102, 241, 0.04);
+  --theme-bg-radial-2: rgba(192, 132, 252, 0.04);
+}
+
+html[data-theme="synthwave"] {
+  --theme-primary: #06b6d4;
+  --theme-primary-hover: #38bdf8;
+  --theme-secondary: #ec4899;
+  --theme-secondary-hover: #f472b6;
+  --theme-accent: #f43f5e;
+  --theme-glow-primary: rgba(6, 182, 212, 0.35);
+  --theme-glow-secondary: rgba(236, 72, 153, 0.35);
+  --theme-bg-radial-1: rgba(6, 182, 212, 0.04);
+  --theme-bg-radial-2: rgba(236, 72, 153, 0.04);
+}
+
+html[data-theme="gold-emerald"] {
+  --theme-primary: #F0B90B;
+  --theme-primary-hover: #fbbf24;
+  --theme-secondary: #10b981;
+  --theme-secondary-hover: #34d399;
+  --theme-accent: #f59e0b;
+  --theme-glow-primary: rgba(240, 185, 11, 0.35);
+  --theme-glow-secondary: rgba(16, 185, 129, 0.35);
+  --theme-bg-radial-1: rgba(240, 185, 11, 0.03);
+  --theme-bg-radial-2: rgba(16, 185, 129, 0.03);
+}
+
+@layer base {
+  body {
+    @apply bg-[#0a0d14] text-slate-100 font-sans;
+    background-image: 
+      radial-gradient(at 0% 0%, var(--theme-bg-radial-1) 0px, transparent 50%),
+      radial-gradient(at 100% 100%, var(--theme-bg-radial-2) 0px, transparent 50%);
+    background-attachment: fixed;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #0a0d14;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #1e293b;
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #334155;
+  }
+}
+
+/* UI Affordance & Theme Utility Classes */
+.btn-tactile {
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: pointer;
+}
+.btn-tactile:active {
+  transform: scale(0.97);
+}
+
+/* Theme Dynamic Color Utilities */
+.text-theme-primary {
+  color: var(--theme-primary) !important;
+}
+.text-theme-secondary {
+  color: var(--theme-secondary) !important;
+}
+.bg-theme-primary {
+  background-color: var(--theme-primary) !important;
+}
+.bg-theme-secondary {
+  background-color: var(--theme-secondary) !important;
+}
+
+.bg-theme-primary-10 {
+  background-color: color-mix(in srgb, var(--theme-primary) 12%, transparent);
+}
+.bg-theme-primary-20 {
+  background-color: color-mix(in srgb, var(--theme-primary) 22%, transparent);
+}
+.bg-theme-secondary-10 {
+  background-color: color-mix(in srgb, var(--theme-secondary) 12%, transparent);
+}
+.bg-theme-secondary-20 {
+  background-color: color-mix(in srgb, var(--theme-secondary) 22%, transparent);
+}
+
+.border-theme-primary {
+  border-color: var(--theme-primary) !important;
+}
+.border-theme-primary-30 {
+  border-color: color-mix(in srgb, var(--theme-primary) 35%, transparent);
+}
+.border-theme-secondary {
+  border-color: var(--theme-secondary) !important;
+}
+.border-theme-secondary-30 {
+  border-color: color-mix(in srgb, var(--theme-secondary) 35%, transparent);
+}
+
+.bg-theme-gradient {
+  background: linear-gradient(135deg, var(--theme-primary) 0%, var(--theme-secondary) 100%) !important;
+}
+.bg-theme-gradient-reverse {
+  background: linear-gradient(135deg, var(--theme-secondary) 0%, var(--theme-primary) 100%) !important;
+}
+.text-theme-gradient {
+  background: linear-gradient(135deg, var(--theme-primary) 0%, var(--theme-secondary) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.shadow-glow-primary {
+  box-shadow: 0 0 18px -3px var(--theme-glow-primary) !important;
+}
+.shadow-glow-secondary {
+  box-shadow: 0 0 18px -3px var(--theme-glow-secondary) !important;
+}
+
+.shadow-glow-blue {
+  box-shadow: 0 0 18px -3px rgba(59, 130, 246, 0.35);
+}
+.shadow-glow-purple {
+  box-shadow: 0 0 18px -3px rgba(168, 85, 247, 0.35);
+}
+.shadow-glow-indigo {
+  box-shadow: 0 0 18px -3px rgba(99, 102, 241, 0.35);
+}
+.shadow-glow-pink {
+  box-shadow: 0 0 18px -3px rgba(236, 72, 153, 0.35);
+}
+.shadow-glow-yellow {
+  box-shadow: 0 0 18px -3px rgba(240, 185, 11, 0.35);
+}
+.shadow-glow-green {
+  box-shadow: 0 0 18px -3px rgba(16, 185, 129, 0.35);
+}
+.shadow-glow-cyan {
+  box-shadow: 0 0 18px -3px rgba(6, 182, 212, 0.35);
+}
+
+/* Chrome, Safari, Edge, Opera number input arrows hide */
+input::-webkit-outer-spin-button,
+input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* Firefox */
+input[type=number] {
+  -moz-appearance: textfield;
+}

@@ -1,0 +1,160 @@
+{
+  "moduleId": "haven.llm-grid",
+  "moduleVersion": "3.3.1",
+  "name": "LLM Grid",
+  "description": "Looks at the chart on its own timer and places a grid buy with the take profit the model chooses.",
+  "hostApiVersion": 1,
+  "minimumHostVersion": "1.2.6",
+  "requestedCapabilities": [
+    "chart.snapshot.v1",
+    "events.schedule.v1",
+    "state.module.v1",
+    "http.request.v1",
+    "secrets.inject.v1",
+    "orders.limit-entry.v1",
+    "orders.cancel.v1",
+    "orders.protection.v1",
+    "orders.observe.v1",
+    "ui.module.v1"
+  ],
+  "supportedChains": [
+    1,
+    56,
+    100,
+    137,
+    42161,
+    8453,
+    43114,
+    10
+  ],
+  "configurationSchema": [
+    {
+      "key": "wakeSeconds",
+      "label": "Wake every (seconds)",
+      "type": "number",
+      "default": 60,
+      "required": true,
+      "min": 6,
+      "max": 86400,
+      "description": "The strategy's only clock. It wakes, runs one cycle, and sleeps until the next."
+    },
+    {
+      "key": "maxOpenBuys",
+      "label": "Max open buys",
+      "type": "number",
+      "default": 4,
+      "required": true,
+      "min": 1,
+      "max": 20,
+      "description": "How many buy levels this grid keeps working at once, resting or filled."
+    },
+    {
+      "key": "cancelEnabled",
+      "label": "Allow the model to move a resting buy",
+      "type": "boolean",
+      "default": true,
+      "required": true,
+      "description": "When the grid is full, the model may cancel one of its own open buys to take a better level. It is told either way, so this can be switched off at any time."
+    },
+    {
+      "key": "cancelCooldownCycles",
+      "label": "Cycles between cancels",
+      "type": "number",
+      "default": 5,
+      "required": true,
+      "min": 1,
+      "max": 1000,
+      "description": "How many cycles must pass after a cancel before another is allowed. At most one order is ever moved per cycle."
+    },
+    {
+      "key": "quoteAmount",
+      "label": "Order amount (USD)",
+      "type": "string",
+      "default": "10",
+      "required": true,
+      "maxLength": 80
+    },
+    {
+      "key": "model",
+      "label": "OpenAI model ID",
+      "type": "string",
+      "default": "gpt-5.6-luna",
+      "required": true,
+      "maxLength": 120,
+      "description": "Any model on your OpenAI account that accepts an image."
+    },
+    {
+      "key": "candleCount",
+      "label": "Chart candles",
+      "type": "number",
+      "default": 120,
+      "required": true,
+      "min": 60,
+      "max": 200
+    },
+    {
+      "key": "instructions",
+      "label": "Chart instructions",
+      "type": "string",
+      "lines": 14,
+      "default": "Place the next grid buy for the token I selected, and say where the take profit should sit.\n\nLook at the chart and the volume. Prefer buying relatively low in the visible range. A large red candle or a sharp decline can itself be a worthwhile entry; you do not need a green candle or a confirmed reversal before buying.\n\nExisting orders are drawn on the chart. Do not place a buy on a level that already has one. Spread the levels out rather than crowding several buys around the same price, and leave room for price to move. If the levels already sitting below the current price cover about half of my maximum open buys, usually wait for price to move into a different range, though you may place between existing levels if the chart shows a good reason.\n\nSet the take profit as a percent above the fill. If the chart does not offer a worthwhile entry, return no buy.",
+      "required": true,
+      "maxLength": 2048
+    }
+  ],
+  "secretSlots": [
+    {
+      "id": "openaiKey",
+      "label": "OpenAI API key",
+      "required": true
+    }
+  ],
+  "viewSchema": {
+    "fields": [
+      {
+        "key": "status",
+        "label": "Status",
+        "type": "text"
+      },
+      {
+        "key": "reason",
+        "label": "Reason",
+        "type": "text"
+      },
+      {
+        "key": "price",
+        "label": "Buy level (USD)",
+        "type": "text"
+      },
+      {
+        "key": "image",
+        "label": "Chart",
+        "type": "image"
+      }
+    ],
+    "buttons": []
+  },
+  "endpointDeclarations": [
+    {
+      "id": "model",
+      "origin": "https://api.openai.com",
+      "path": "/v1/responses",
+      "method": "POST",
+      "authentication": {
+        "slotId": "openaiKey",
+        "placement": "header",
+        "name": "Authorization",
+        "prefix": "Bearer "
+      }
+    }
+  ],
+  "eventSubscriptions": [],
+  "stateSchemaVersion": 1,
+  "tradeCountControl": "module",
+  "orderAmountControl": "module",
+  "resourceRequirements": {
+    "memoryMb": 32,
+    "cpuMs": 250,
+    "maxStateBytes": 16384
+  }
+}

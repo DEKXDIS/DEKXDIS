@@ -1,0 +1,12 @@
+node_modules/
+dist/
+src-tauri/target/
+src-tauri/gen/
+.env
+.env.*
+*.log
+*.exe
+*.dll
+# Publisher signing key. Never commit: it is what the program trusts to accept a module.
+.publisher/
+.wrangler/
