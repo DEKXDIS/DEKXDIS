@@ -10,3 +10,4 @@ src-tauri/gen/
 # Publisher signing key. Never commit: it is what the program trusts to accept a module.
 .publisher/
 .wrangler/
+.media-captures/
