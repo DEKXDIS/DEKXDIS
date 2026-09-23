@@ -10,8 +10,8 @@ Download and repository links are in `index.html` and `public/_redirects`. The u
 
 The homepage does not advertise or bundle strategy modules. Module builds do not deploy this website.
 
-The DEKXDIS deployment targets `dekxdis.com`. Build with `npm run build` in this directory and deploy `dist/` to the new account's Cloudflare Pages project after its domain has been configured.
+The site is deployed at `https://dekxdis.com` in the DEKXDIS Cloudflare account, using Pages project `dekxdis`. Its apex CNAME points to `dekxdis.pages.dev`. Build with `npm run build` in this directory, then deploy with `npx wrangler pages deploy dist --project-name dekxdis --branch main --profile dekxdis`. The named profile must be authorized for the DEKXDIS account. Do not recreate the project or migrate its framework when deploying updates.
 
 The branded homepage demos are sequences of actual app screenshots captured with the isolated `../scripts/product-demo/demo.html` fixture. They use example balances and a mocked order submission. Run the root Vite dev server to open that fixture; `node scripts/product-demo/encode.mjs` from the repository root regenerates the clips from the saved frames using FFmpeg.
 
-The repository is currently private. Its release and source links require repository access until public distribution is configured. See `../docs/rebrand-status.md` for the remaining launch requirements.
+The repository must remain private and the program unreleased. Do not add website-hosted binaries or change source visibility as part of this conversion. Existing GitHub links require repository access. See `../docs/rebrand-status.md` for the remaining domain migration requirements.
