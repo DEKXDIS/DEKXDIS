@@ -9,10 +9,12 @@ import { web3Service } from './web3Service';
 import { cowProtocol } from './cowProtocol';
 import { quantityForUsd, quoteForQuantityUsd } from '../utils/amounts';
 import { getNextOcoTag, recordAllocatedOcoTag } from '../utils/ocoUtils';
+import { positionLots } from '../utils/positions';
 
 /** The same command is used by the manual order form and automation. Prices are USD display prices. */
 export interface OrderCommand {
-  side: 'buy' | 'sell'; price: number; amount: string; amountUnit: 'usd' | 'token';
+  side: 'buy' | 'sell'; price: number; amount?: string; amountUnit?: 'usd' | 'token';
+  positionId?: string; // A sell may identify the confirmed buy whose remaining tokens it closes.
   takeProfitPrice?: number; stopLossPrice?: number;
   sellKind?: 'limit' | 'stop';
 }
@@ -21,6 +23,7 @@ export interface PlacementContext {
   requestId?: string; // Automation correlation, stored only on actual orders.
   checkCurrent?: () => void;
   checkBuyAmount?: (amountWei: bigint, quoteDecimals: number, quoteUsdPrice: number) => void;
+  sellFromPosition?: boolean;
 }
 export const isWorkingOrder = (order: TradeOrder) => order.status === 'pending' || order.status === 'open';
 
@@ -48,17 +51,23 @@ export async function placeOrder(context: PlacementContext, input: OrderCommand)
   const command = { ...input }, token = { ...context.token }, wallet = { ...context.wallet };
   const { chainId } = context;
   let buySpend: { amount: bigint; decimals: number; rate: number } | undefined;
+  let exitPosition: { id: string; amount: bigint } | undefined;
+  const lots = () => positionLots(store.getAccountingOrders(), { owner: wallet.address, token, chainId });
   const check = () => {
     if (!nativeStore.isHealthy() || nativeStore.getWallet()?.address.toLowerCase() !== wallet.address.toLowerCase() || wallet.needsBackup) {
       throw new Error('Active wallet is unavailable or needs its backup');
     }
     context.checkCurrent?.();
     if (buySpend) context.checkBuyAmount?.(buySpend.amount, buySpend.decimals, buySpend.rate);
+    if (exitPosition && (lots().find(lot => lot.order.id === exitPosition!.id)?.available ?? 0n) < exitPosition.amount) {
+      throw new Error('This buy’s remaining tokens are already sold or reserved for an exit');
+    }
   };
   check();
   assertTradingPair(token.address, chainId);
-  if (token.chainId !== chainId || !['buy', 'sell'].includes(command.side) || !['usd', 'token'].includes(command.amountUnit)) throw new Error('Invalid order identity or amount unit');
-  if (!Number.isFinite(command.price) || command.price <= 0 || !/^\d+(\.\d+)?$/.test(command.amount) || !Number.isFinite(Number(command.amount)) || Number(command.amount) <= 0) throw new Error('Order price and amount must be positive');
+  if (token.chainId !== chainId || !['buy', 'sell'].includes(command.side)) throw new Error('Invalid order identity');
+  if (!Number.isFinite(command.price) || command.price <= 0) throw new Error('Order price must be positive');
+  if (command.positionId && command.side !== 'sell') throw new Error('Only a sell can close a bought position');
   for (const value of [command.takeProfitPrice, command.stopLossPrice]) if (value !== undefined && (!Number.isFinite(value) || value <= 0)) throw new Error('Protection prices must be positive');
   if (command.side === 'buy' && ((command.takeProfitPrice !== undefined && command.takeProfitPrice <= command.price) ||
     (command.stopLossPrice !== undefined && command.stopLossPrice >= command.price))) throw new Error('Take-profit must be above entry and stop-loss below entry');
@@ -69,13 +78,23 @@ export async function placeOrder(context: PlacementContext, input: OrderCommand)
       const prior = store.getOrders().filter(order => order.automationRequestId === context.requestId && order.ownerAddress?.toLowerCase() === wallet.address.toLowerCase());
       if (prior.length) return prior;
     }
+    if (command.side === 'sell' && (context.sellFromPosition || command.positionId)) {
+      const lot = command.positionId ? lots().find(lot => lot.order.id === command.positionId) : lots().find(lot => lot.available > 0n);
+      if (!lot || lot.available <= 0n) throw new Error('No unsold buy is available; its tokens may already be reserved for TP, SL or another sell');
+      exitPosition = { id: lot.order.id, amount: lot.available };
+      command.amount = ethers.formatUnits(lot.available, token.decimals);
+      command.amountUnit = 'token';
+    }
+    const amount = command.amount, amountUnit = command.amountUnit;
+    if (typeof amount !== 'string' || !/^\d+(\.\d+)?$/.test(amount) || !Number.isFinite(Number(amount)) || Number(amount) <= 0) throw new Error('Order amount must be positive');
+    if (amountUnit !== 'usd' && amountUnit !== 'token') throw new Error('Invalid order amount unit');
     const quote = getTradingQuoteToken(chainId);
     const rate = await tradingQuoteUsdPrice(chainId);
     check();
-    const quantity = command.amountUnit === 'token' ? command.amount : quantityForUsd(command.amount, command.price, token.decimals);
+    const quantity = amountUnit === 'token' ? amount : quantityForUsd(amount, command.price, token.decimals);
     const tokenWei = ethers.parseUnits(quantity, token.decimals);
-    const quoteQuantity = command.amountUnit === 'usd' && command.side === 'buy'
-      ? quantityForUsd(command.amount, rate, quote.decimals)
+    const quoteQuantity = amountUnit === 'usd' && command.side === 'buy'
+      ? quantityForUsd(amount, rate, quote.decimals)
       : quoteForQuantityUsd(quantity, command.price, rate, token.decimals, quote.decimals);
     const quoteWei = ethers.parseUnits(quoteQuantity, quote.decimals);
     if (tokenWei <= 0n || quoteWei <= 0n) throw new Error('Order amount is below token precision');
@@ -92,6 +111,7 @@ export async function placeOrder(context: PlacementContext, input: OrderCommand)
     const base: TradeOrder = {
       id: '', ownerAddress: wallet.address, chainId, timestamp: Date.now(), candleTime: context.candleTime,
       automationRequestId: context.requestId, tradeSide: command.side, quoteTokenAddress: quote.address, quoteUsdPrice: rate,
+      parentOrderId: exitPosition?.id,
       type: 'TOKEN_SWAP', orderCategory: buying ? 'limit' : 'limit_sell', ocoGroupId: tag,
       limitPrice: command.price, executionPrice: command.price,
       sellToken: asset.address, buyToken: buying ? token.address : quote.address,

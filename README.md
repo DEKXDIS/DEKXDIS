@@ -4,14 +4,43 @@ DEKXDIS   - defi limit trading from your own computer.
 Trade pretty much any ERC-20 token with Realtime charts from Tradingview.
 Select a token or import your own from the drop-down window.  Imported contract addresses, run a GoPlus security scan, it gives you some information about the token, but you should always check out the token you want to trade yourself.  
 To place a trade just right click the chart and it will give you a window with the price you clicked at, you can edit the price, the amount you want to trade, add a SL and/or TP OCO and it takes care of the rest.  Understand the Stop losses are not perfect in Defi, major dumps it will not protect you.  Besides you want to buy the dip not sell the dip. Just saying, oh and myself or DEKXDIS is not giving you any finical advice, anything you do or lose is your own decision.  Don’t be a dummy, only trade what you can afford to lose.
-Trades are handled by CoW protocol which completes your order at or better than the price you want and never less.  it includes gas in the trade by getting a better price for you and subtracts the gas from the surplus.  Fees are 0.07%, no hidden fees, no slippage, no mark up.  That is not a typo it really is 0.07% per trade.  Read up about CoW and the whole intents and solvers game if you haven’t already. It solves the MEV Problem.  CoW solvers make money only if they get you a better price for your trade and they take a cut of that surplus and you get the rest as a bonus. The 0.07% is split 0.05% to DEKXDIS and 0.02% to the CoW Protocol and that is the only fees that come off your trade amount.  If your order gets canceled for whatever reason, you pay nothing.  
+
+**Set Your Price. Capture the Surplus. Pay 0% in Flat Fees.**
+
+When you trade on our platform, you are always in complete control. You set the exact price you want for your tokens—your order will swap at that price, **and absolutely no less. But it can be more.**
+
+Through our integration with [**CoW Protocol**](https://cow.fi/), we utilize an advanced network of independent "solvers" to match your orders. Instead of relying on a single liquidity pool, solvers tap into a vast web of secure sources—including on-chain pools, major exchanges, and private peer-to-peer sale orders—to find you the best possible rate.
+
+The best part? **The solvers only get paid if they save you money by generating a surplus on your order.** This performance-driven structure guarantees that everyone's incentives are perfectly aligned.
+
+**How it Works (The $100 Example)**
+
+Imagine you want to sell Token A. You place an order intent stating you want to receive exactly **$100 USD** for your tokens.
+
+1. **The Solver Auction:** Your order goes out to a competitive batch auction where solvers bid to find you the absolute highest return. Solver 1 finds a route for $101, Solver 2 finds one for $102... **Sold!**
+2. **The Surplus:** They just secured an execution price that is **$2.00 more** than you were originally asking for. This $2.00 is your trade surplus.
+3. **The Clear Payout Breakdown:**
+   - **CoW Protocol Fee:** CoW Protocol rewards the winning solver with 50% of the surplus (capped at 1% of total trade volume), which amounts to **$0.50**.
+   - **Dekxdis Fee:** Our platform takes a 25% performance cut of the surplus, which amounts to **$0.25**.
+   - **Your Share:** You keep the remaining 25%, plus 100% of any surplus that exceeds the 1% volume cap. In this scenario, **you make off with the lion's share of $1.25** on top of your requested amount.
+
+You received exactly what you wanted for your tokens, all platform and protocol infrastructure costs were fully covered, and you walked away with extra money in your wallet. It is a true win-win for everyone.
+
+**Why This Beats Traditional Exchanges**
+
+- **No Artificial Markups:** Say goodbye to hidden fees, artificial spreads, and slippage nonsense.
+- **Zero Cost for Base Execution:** If the market doesn't allow solvers to find a surplus, your order still fills exactly at your requested price, and **you pay $0 to anyone**. No surplus means no payout.
+- **No Risk on Cancellations:** If you decide to cancel your order before it fills, you pay nothing.
+- **Outperforming Centralized Exchanges (CEXs):** Traditional centralized platforms charge flat fees anywhere from **0.1% up to 2%** on your total order size. On a $100 trade, a standard exchange might swallow your funds in fees, leaving you with only **$98** for tokens you wanted $100 for. On our platform, you leave with **$101.25**.
+
+Ready to see how intent-based trading protects your capital? **Explore CoW Protocol here** to learn more about the underlying architecture, or **download the Dekxdis software** to start trading for free today.
 
 The entire program runs on your own computer, all trades are signed by a wallet that DEKXDIS will create for you, or you can import your own ERC-20 wallet yourself.  Your key stays on your machine only, trades are signed on your computer and then sent to the CoW api. No websites, no middleman servers.  Your wallet stays with you, and your keys are stored in the windows encrypted storage on your computer.  
 
 The DEKXDIS software gives you a workspace for every token you want to trade, each workspace contains a chart, A trades window that tracks pending transactions, filled transactions, and cancel transactions, with fill price, timestamped.   You get a wallet dedicated on the page for the token workspace your on, that shows the balance of the token and the overall native wrapped token it trades with.  Everything is shown in USD for convenience but traded in wrapped native tokens to avoid multiple trades and saves you fees. There is also a manual swap to USDT for those down times.  You can view and place trades for different tokens its workspace page, and if you switch pages your trades are managed in the background and always running even if you switch to view a different token.
 
 This software is to make your trading easier with the lowest fees around; you can and will lose money trading.   The program is free to use, and the source code is on github.  You can build the program yourself and you can download the executable from the releases.  dekxdis.com is our website and has links to github and documents from there.  
-Experimental workspace automation uses saved prompts and settings for each token. It sends the model a fresh chart and trade snapshot, then places the requested buys or sells through the same order path as the manual chart form. TP and SL are optional. See [the automation notes](docs/automation.md) for setup and behavior.
+Experimental workspace automation uses saved prompts and settings for each token. It sends the model a fresh chart and trade snapshot, then places the requested buys or sells through the same order path as the manual chart form. TP and SL are optional. Buys use your configured trade amount; strategy sells use the actual tokens remaining from a bought position. Unsold-buy counts, per-token USD allowances and the last model response are visible in the Automation window. See [the user guide](docs/dekxdis-user-guide.html#automation) for setup and behavior.
 
 dekxdis.com
 DEKXDIS@purelymail.com

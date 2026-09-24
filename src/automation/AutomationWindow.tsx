@@ -6,6 +6,9 @@ import { readSettings, saveSettings, settingsDraft, parseSettingsDraft, workspac
 import { openBuyCount, RESPONSE_FORMAT } from './packet';
 import { tradingAllowance } from './allowance';
 import { storageService } from '../services/storageService';
+import { positionLots } from '../utils/positions';
+import { ethers } from 'ethers';
+import { formatTokenDisplay } from '../utils/displayFormat';
 
 interface Props { selectedToken: TokenConfig; selectedChainId: number; wallet: WalletState | null; orders: TradeOrder[]; onRequireWallet: () => void }
 export function AutomationWindow({ selectedToken: token, selectedChainId: chainId, wallet, orders, onRequireWallet }: Props) {
@@ -30,6 +33,9 @@ export function AutomationWindow({ selectedToken: token, selectedChainId: chainI
   const inputClass = 'w-full rounded-lg border border-surface-border bg-background px-2 py-1.5 text-slate-100 focus:outline-none focus:border-theme-primary';
   const buttonClass = 'btn-tactile rounded-lg border border-surface-border bg-surface px-3 py-2 hover:border-theme-primary disabled:opacity-50';
   const w = { owner: wallet?.address || '', token, chainId };
+  const positions = useMemo(() => {
+    try { return positionLots(storageService.getAccountingOrders(orders), w); } catch { return null; }
+  }, [orders, key]);
   const allowance = useMemo(() => {
     try { return tradingAllowance(storageService.getAccountingOrders(orders), w, settings.maxFundsUsd); }
     catch { return null; }
@@ -41,6 +47,12 @@ export function AutomationWindow({ selectedToken: token, selectedChainId: chainI
   return <div className="h-full overflow-auto bg-surface p-3 text-xs text-slate-300 space-y-3">
     <div className="flex justify-between gap-2 border-b border-surface-border pb-2"><strong className="text-theme-primary">Automation · {token.symbol}</strong>
       <span className="text-theme-secondary">{openBuyCount(orders, w)} open buys</span></div>
+    <div className="rounded-lg border border-surface-border bg-background p-2" aria-label="Bought positions">
+      <p className="text-theme-primary">Unsold buys: {positions ? positions.filter(p => p.remaining > 0n).length : 'Unavailable'}</p>
+      {positions && <p>Tokens held: {formatTokenDisplay(ethers.formatUnits(positions.reduce((sum, p) => sum + p.remaining, 0n), token.decimals))} {token.symbol}
+        {' · '}Available to sell: {formatTokenDisplay(ethers.formatUnits(positions.reduce((sum, p) => sum + p.available, 0n), token.decimals))} {token.symbol}</p>}
+      <p className="text-slate-400">A bought position stays counted until all its tokens sell. Pending exits reserve tokens.</p>
+    </div>
     <p>Each check uses this token’s chart, orders, positions and recent history. Enabled tokens keep running when you switch workspaces.</p>
     <fieldset disabled={status.running} className="space-y-3 disabled:opacity-70">
       <label className="block space-y-1"><span>Instructions</span><textarea aria-label="Automation instructions" className={inputClass} rows={7}
@@ -56,10 +68,11 @@ export function AutomationWindow({ selectedToken: token, selectedChainId: chainI
       <label className="block">Trading allowance (USD)<input inputMode="decimal" className={inputClass} value={settings.maxFundsUsd}
         onChange={e => field('maxFundsUsd', e.target.value)} placeholder="Unlimited when blank" /></label>
       <p className="text-slate-400">Buys use this token’s allowance; completed sells restore it up to the limit. Pending buys reserve funds. The wallet must also have enough wrapped native tokens.</p>
-      <label className="block">Order amount<select className={inputClass} value={settings.amountMode} onChange={e => field('amountMode', e.target.value as SettingsDraft['amountMode'])}>
-        <option value="fixed">Fixed amount per trade</option><option value="model">Model chooses each amount</option></select></label>
+      <label className="block">Buy amount<select className={inputClass} value={settings.amountMode} onChange={e => field('amountMode', e.target.value as SettingsDraft['amountMode'])}>
+        <option value="fixed">Fixed amount per buy</option><option value="model">Model chooses each buy amount</option></select></label>
       {settings.amountMode === 'fixed' && <div className="grid grid-cols-2 gap-2"><label>Amount<input className={inputClass} value={settings.amount} onChange={e => field('amount', e.target.value)} /></label>
         <label>Unit<select className={inputClass} value={settings.amountUnit} onChange={e => field('amountUnit', e.target.value as 'usd' | 'token')}><option value="usd">USD value</option><option value="token">{token.symbol}</option></select></label></div>}
+      <p>Sells use the actual remaining tokens from the selected buy. For example, tokens bought for $10 can sell for $10.25; the buy amount does not limit the sale proceeds.</p>
     </fieldset>
     {allowance?.limitUsd !== null && allowance && <div className="rounded-lg border border-surface-border bg-background p-2">
       {allowance.error ? <p className="text-amber-300">{allowance.error}</p> : <><p className="text-theme-primary">Allowance remaining: ${Number(allowance.availableUsd).toFixed(2)} / ${Number(allowance.limitUsd).toFixed(2)}</p>

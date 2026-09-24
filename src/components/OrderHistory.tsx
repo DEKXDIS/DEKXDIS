@@ -20,6 +20,8 @@ import { formatTokenDisplay, formatUsdDisplay } from '../utils/displayFormat';
 import { buildFilledExitPnls, historyPrice, orderHistoryTab, OrderHistoryTab, userOrderId } from '../utils/orderHistory';
 import { openExplorerLink } from '../services/explorerLinks';
 import type { OrderFundingStatus } from '../utils/orderFunding';
+import { storageService } from '../services/storageService';
+import { positionLots } from '../utils/positions';
 
 interface OrderHistoryProps {
   orders: TradeOrder[];
@@ -49,7 +51,12 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [statusTab, setStatusTab] = useState<OrderHistoryTab>('WAITING');
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
-  const pnlByOrder = useMemo(() => buildFilledExitPnls(orders), [orders]);
+  const accountingOrders = useMemo(() => storageService.getAccountingOrders(orders), [orders]);
+  const pnlByOrder = useMemo(() => buildFilledExitPnls(accountingOrders), [accountingOrders]);
+  const owner = storageService.getWallet()?.address;
+  const unsoldBuyCount = useMemo(() => owner && selectedToken ? positionLots(accountingOrders,
+    { owner, token: selectedToken, chainId: selectedChainId ?? selectedToken.chainId }).filter(lot => lot.remaining > 0n).length : null,
+    [accountingOrders, owner, selectedToken, selectedChainId]);
 
   const baseFilteredOrders = orders.filter((o) => {
     // 1. Token / Chain Scope Isolation
@@ -219,6 +226,9 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({
                 {filteredOrders.length} / {orders.length}
               </span>
             </h3>
+            {scope === 'TOKEN' && unsoldBuyCount !== null && <p className="text-[10px] text-theme-secondary" title="Filled buys with tokens still held. Pending sells do not reduce this count.">
+              Unsold buys: {unsoldBuyCount}
+            </p>}
           </div>
         </div>
 

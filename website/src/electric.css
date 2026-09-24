@@ -68,3 +68,13 @@
   .electric-power .power-flow p,.electric-power .power-benefits p{font-size:13px}
   .electric-power .power-download p{font-size:14px}
 }
+
+.electric-power .fee-explanation{max-width:960px;text-align:left}
+.electric-power .fee-explanation h2{font-size:clamp(32px,4vw,56px);line-height:1.12;margin-bottom:30px}
+.electric-power .fee-explanation h3{font-size:24px;margin:34px 0 16px;color:#e2dfff}
+.electric-power .fee-explanation p,.electric-power .fee-explanation li{font-size:16px;line-height:1.8;color:#b9bed4}
+.electric-power .fee-explanation p{margin:0 0 20px}
+.electric-power .fee-explanation ul,.electric-power .fee-explanation ol{padding-left:24px;margin:16px 0 24px}
+.electric-power .fee-explanation li{margin-bottom:12px;padding-left:5px}
+.electric-power .fee-explanation strong{color:#f0edff}
+.electric-power .fee-explanation a{color:#c2b8ff;text-decoration:underline;text-underline-offset:3px}

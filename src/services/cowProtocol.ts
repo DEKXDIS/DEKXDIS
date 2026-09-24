@@ -26,13 +26,16 @@ const EIP712_TYPES = {
 };
 
 export const DEKXDIS_APP_CODE = 'DEKXDIS';
-export const DEKXDIS_PARTNER_FEE_BPS = 5; // 0.05% of executed trade volume
+export const DEKXDIS_PARTNER_SURPLUS_BPS = 2500; // 25% of surplus, never a flat volume charge
+export const DEKXDIS_PARTNER_MAX_VOLUME_BPS = 100; // Cap the partner fee at 1% of volume
 export const DEKXDIS_PARTNER_FEE_RECIPIENT = '0xfC3f2f30F3b31A828F0DE3565094C74a884e71c0';
+export const DEKXDIS_PARTNER_FEE = { recipient: DEKXDIS_PARTNER_FEE_RECIPIENT,
+  surplusBps: DEKXDIS_PARTNER_SURPLUS_BPS, maxVolumeBps: DEKXDIS_PARTNER_MAX_VOLUME_BPS };
 
 // Quotes, signed orders and registration share the same fee data and hash.
 export const DEKXDIS_APP_DATA_CONTENT = JSON.stringify({
   appCode: DEKXDIS_APP_CODE,
-  metadata: { partnerFee: { recipient: DEKXDIS_PARTNER_FEE_RECIPIENT, volumeBps: DEKXDIS_PARTNER_FEE_BPS } },
+  metadata: { partnerFee: DEKXDIS_PARTNER_FEE },
   version: '1.15.0',
 });
 export const DEKXDIS_APP_DATA_HEX = ethers.keccak256(ethers.toUtf8Bytes(DEKXDIS_APP_DATA_CONTENT));
@@ -424,8 +427,8 @@ export const cowProtocol = {
     return this.persistAndPost(orderPayload, chainId, signer.address, params.onPrepared);
   },
 
-  getPartnerFeeBps(): number {
-    return DEKXDIS_PARTNER_FEE_BPS;
+  getPartnerFee() {
+    return { ...DEKXDIS_PARTNER_FEE };
   },
 
   getPartnerFeeRecipient(): string {

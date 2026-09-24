@@ -81,11 +81,11 @@ async function cycle(key: string, run: Run) {
     let placed = 0;
     for (const [index, proposed] of decision.orders.entries()) {
       checkTrade(run, proposed.side);
-      const command = run.settings.amountMode === 'fixed'
+      const command = proposed.side === 'buy' && run.settings.amountMode === 'fixed'
         ? { ...proposed, amount: run.settings.amount, amountUnit: run.settings.amountUnit } : proposed;
       update(key, run, { message: `Placing ${command.side} order` });
       await placeOrder({ wallet: run.wallet, token: run.workspace.token, chainId: run.workspace.chainId,
-        requestId: `${cycleId}:${index}`, checkCurrent: () => checkTrade(run, command.side),
+        requestId: `${cycleId}:${index}`, sellFromPosition: command.side === 'sell', checkCurrent: () => checkTrade(run, command.side),
         checkBuyAmount: (amount, decimals, rate) => {
           check(run);
           assertBuyAllowance(storageService.getAccountingOrders(), run.workspace, run.settings.maxFundsUsd, amount, decimals, rate);

@@ -89,7 +89,7 @@ export const cowBridgeSdk = {
       buyTokenChainId: destinationChain as TargetChainId, sellTokenAddress: sellToken, buyTokenAddress: buyToken,
       sellTokenDecimals: sellDecimals, buyTokenDecimals: buyDecimals, account: owner as `0x${string}`, owner: owner as `0x${string}`, receiver: owner, bridgeRecipient: owner,
       signer, appCode: cowProtocol.getAppCode(), swapSlippageBps: 50, bridgeSlippageBps: 50, validFor: 1200,
-      partiallyFillable: false, partnerFee: { recipient: cowProtocol.getPartnerFeeRecipient(), volumeBps: cowProtocol.getPartnerFeeBps() } };
+      partiallyFillable: false, partnerFee: cowProtocol.getPartnerFee() };
     // Await all actual calls, not the SDK's timeout race which can leave calls using a later adapter.
     const results = await Promise.allSettled(providers.map(async bridgeProvider => {
       const tradingSdk = new TradingSdk({ chainId: chainId as SupportedChainId, appCode: cowProtocol.getAppCode() }, { orderBookApi: api, enableLogging: false });

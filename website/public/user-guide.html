@@ -17,6 +17,8 @@
         <a href="#wallet">Wallet</a>
         <a href="#trading-assets">Trading assets</a>
         <a href="#trading">Trading</a>
+        <a href="#automation">Automation</a>
+        <a href="#fees">Fees</a>
         <a href="#overview">Overview</a>
         <a href="#startup">Startup &amp; closing</a>
         <a href="#build-from-source">Build from source</a>
@@ -25,7 +27,7 @@
 
     <main id="content" tabindex="-1">
       <section class="hero">
-        <p class="eyebrow">USER GUIDE · VERSION 1.2.12</p>
+        <p class="eyebrow">USER GUIDE · VERSION 1.2.13</p>
         <h1>DEKXDIS User Guide</h1>
         <p class="lede">Start here if you have not used DEKXDIS before. This guide explains how to open the Windows app, protect your wallet, add funds, find your way around the screen, and place an order.</p>
         <div class="guide-pair"><div class="guide-copy"><p class="notice"><strong>DEKXDIS uses a wallet stored on your computer.</strong> The wallet is protected by your Windows account and is not an account that DEKXDIS can reset for you. DEKXDIS never takes custody of your assets. Before adding funds, record the recovery phrase and private key shown for your wallet, and keep your backup safe and offline.</p></div><div class="guide-visuals"><figure class="guide-shot"><a class="shot-link" href="guide-images/workspace-wallet-expanded.png" target="_blank" rel="noopener" aria-label="Enlarge: DEKXDIS trading workspace with wallet and manual trade controls expanded"><img src="guide-images/workspace-wallet-expanded.png" width="1280" height="720" alt="DEKXDIS trading workspace with wallet and manual trade controls expanded"></a><figcaption>The token workspace with <strong>wallet/trade</strong> open. <span class="enlarge-hint">Select the image to enlarge.</span></figcaption></figure></div></div>
@@ -232,8 +234,47 @@
 
       <section id="trade-metrics" class="section">
         <h2>Trading metrics</h2><figure class="guide-shot"><a class="shot-link" href="guide-images/trade-metrics.png" target="_blank" rel="noopener" aria-label="Enlarge: Trading volume, executions, average buy price, and unrealized and realized PnL"><img src="guide-images/trade-metrics.png" width="731" height="86" loading="lazy" alt="Trading volume, executions, average buy price, and unrealized and realized PnL"></a><figcaption>The four trading metrics cards above the chart. <span class="enlarge-hint">Select the image to enlarge.</span></figcaption></figure>
-        <p>The metrics strip follows the selected token and network. <strong>Traded Volume</strong> totals recorded buy spending and sell proceeds in USD. <strong>Executions</strong> counts usable confirmed fills and separates buys and sells. <strong>Avg Buy Price</strong> is the average price across recorded buys. <strong>Unrealized PnL</strong> estimates the change in value of the remaining recorded position, using a moving-average entry cost. <strong>Realized PnL</strong> totals the confirmed linked-exit profits and losses for that token and network. Unmatched sales without a recorded PnL are excluded.</p>
+        <p>The <strong>Unsold buys</strong> count in Order History shows how many filled buys still have tokens held. Pending exits do not lower it. The metrics strip follows the selected token and network. <strong>Traded Volume</strong> totals recorded buy spending and sell proceeds in USD. <strong>Executions</strong> counts usable confirmed fills and separates buys and sells. <strong>Avg Buy Price</strong> is the average price across recorded buys. <strong>Unrealized PnL</strong> estimates the change in value of the remaining recorded position, using a moving-average entry cost. <strong>Realized PnL</strong> totals the confirmed linked-exit profits and losses for that token and network. Unmatched sales without a recorded PnL are excluded.</p>
         <p>Order History’s TP/SL <strong>PnL</strong> uses confirmed exit proceeds and the corresponding share of the linked entry cost. It shows <em>Unavailable</em> when the required fill or conversion data is missing. These figures do not supply an entry cost for externally deposited tokens and do not include separate network gas costs.</p>
+      </section>
+
+<section id="fees" class="section">
+<h2>Set Your Price. Capture the Surplus. Pay 0% in Flat Fees.</h2>
+<p>When you trade on our platform, you are always in complete control. You set the exact price you want for your tokens—your order will swap at that price, <strong>and absolutely no less. But it can be more.</strong></p>
+<p>Through our integration with <a href="https://cow.fi/"><strong>CoW Protocol</strong></a>, we utilize an advanced network of independent "solvers" to match your orders. Instead of relying on a single liquidity pool, solvers tap into a vast web of secure sources—including on-chain pools, major exchanges, and private peer-to-peer sale orders—to find you the best possible rate.</p>
+<p>The best part? <strong>The solvers only get paid if they save you money by generating a surplus on your order.</strong> This performance-driven structure guarantees that everyone's incentives are perfectly aligned.</p>
+<h3>How it Works (The $100 Example)</h3>
+<p>Imagine you want to sell Token A. You place an order intent stating you want to receive exactly <strong>$100 USD</strong> for your tokens.</p>
+<ol>
+<li><strong>The Solver Auction:</strong> Your order goes out to a competitive batch auction where solvers bid to find you the absolute highest return. Solver 1 finds a route for $101, Solver 2 finds one for $102... <strong>Sold!</strong>
+</li>
+<li><strong>The Surplus:</strong> They just secured an execution price that is <strong>$2.00 more</strong> than you were originally asking for. This $2.00 is your trade surplus.
+</li>
+<li><strong>The Clear Payout Breakdown:</strong>
+<ul>
+<li><strong>CoW Protocol Fee:</strong> CoW Protocol rewards the winning solver with 50% of the surplus (capped at 1% of total trade volume), which amounts to <strong>$0.50</strong>.</li>
+<li><strong>Dekxdis Fee:</strong> Our platform takes a 25% performance cut of the surplus, which amounts to <strong>$0.25</strong>.</li>
+<li><strong>Your Share:</strong> You keep the remaining 25%, plus 100% of any surplus that exceeds the 1% volume cap. In this scenario, <strong>you make off with the lion's share of $1.25</strong> on top of your requested amount.</li>
+</ul>
+</li></ol>
+<p>You received exactly what you wanted for your tokens, all platform and protocol infrastructure costs were fully covered, and you walked away with extra money in your wallet. It is a true win-win for everyone.</p>
+<h3>Why This Beats Traditional Exchanges</h3>
+<ul><li><strong>No Artificial Markups:</strong> Say goodbye to hidden fees, artificial spreads, and slippage nonsense.</li><li><strong>Zero Cost for Base Execution:</strong> If the market doesn't allow solvers to find a surplus, your order still fills exactly at your requested price, and <strong>you pay $0 to anyone</strong>. No surplus means no payout.</li><li><strong>No Risk on Cancellations:</strong> If you decide to cancel your order before it fills, you pay nothing.</li><li><strong>Outperforming Centralized Exchanges (CEXs):</strong> Traditional centralized platforms charge flat fees anywhere from <strong>0.1% up to 2%</strong> on your total order size. On a $100 trade, a standard exchange might swallow your funds in fees, leaving you with only <strong>$98</strong> for tokens you wanted $100 for. On our platform, you leave with <strong>$101.25</strong>.</li></ul>
+<p>Ready to see how intent-based trading protects your capital? <a href="https://cow.fi/"><strong>Explore CoW Protocol here</strong></a> to learn more about the underlying architecture, or <a href="https://github.com/DEKXDIS/DEKXDIS/releases/latest"><strong>download the Dekxdis software</strong></a> to start trading for free today.</p>
+</section>
+
+      <section id="automation" class="section">
+        <h2>Workspace automation</h2>
+        <p>The Automation window saves a separate prompt and settings for each token. Enter your instructions, an image-capable OpenAI model ID and your API key, then select <strong>Start</strong>. Enabled tokens continue running when you switch workspaces. <strong>Stop</strong> ends new decisions; existing orders remain managed by the trading engine. Automation starts stopped after reopening the app.</p>
+        <p>Each check sends a fresh image of that token's chart, current orders, bought positions, recent trade history and balances. The input package is discarded after the check. <strong>Last AI response</strong> remains visible until the next response, including when you reopen the window.</p>
+        <h3>Buy settings and trading allowance</h3>
+        <p>Set the check interval, time between trades, maximum open buys, history length and buy amount. The maximum counts only buys that have not filled. Filled buys and their TP or SL orders do not occupy an open-buy slot.</p>
+        <p><strong>Trading allowance (USD)</strong> is independent for every token. Buys consume it, pending buys reserve it, and completed sells replenish it up to the limit. Blank means unlimited; zero prevents new automation buys. The actual wallet must still hold enough wrapped native tokens. The setting does not divide your wallet balance among tokens. The allowance is calculated from the main trade history, including manual trades, and survives restarting or clearing visible history.</p>
+        <h3>Unsold buys and exact token exits</h3>
+        <p><strong>Unsold buys</strong> appears in Automation and the selected token's Order History. It counts filled buys with tokens still held. A partial sale keeps the buy counted until its final tokens sell. A pending sell reserves tokens and does not reduce the count. Automation shows both held tokens and the quantity available for another exit; tokens assigned to TP, SL or a pending sell are already reserved.</p>
+        <p>The model sees each bought position, its purchase cost, actual remaining token quantity, available quantity and entry price. It can identify the buy it wants to sell. If it does not choose one, the application selects the oldest available buy. A strategy sale uses the available remainder of that buy; your fixed USD buy amount does not cap the sale.</p>
+        <p>For example, a $10 buy at $2 per token receives 5 tokens. Selling those 5 tokens at $2.05 returns $10.25 before any difference in actual execution. Once confirmed, Order History displays the actual USD proceeds and the $0.25 profit if those were the recorded fills. USD is for display and convenient input; orders trade actual token quantities.</p>
+        <p>Each strategy sale links to its original buy for profit reporting, including after the buy disappears from visible history. Fill prices use confirmed quantities and the recorded USD conversion. The packet also includes the weighted average entry price of tokens still held. A prompt can request a minimum selling margin, but there is no separate enforced minimum-profit setting.</p>
       </section>
 
       <section id="overview" class="section">

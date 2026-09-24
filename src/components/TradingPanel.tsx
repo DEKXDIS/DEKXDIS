@@ -717,7 +717,7 @@ export const TradingPanel: React.FC<TradingPanelProps> = ({
         <span className="flex items-center gap-1 text-theme-primary">
           <ShieldCheck className="w-3 h-3 text-theme-primary" /> CoW Protocol MEV Protected
         </span>
-        <span className="text-slate-500">CoW Protocol · DEKXDIS fee {(cowProtocol.getPartnerFeeBps() / 100).toFixed(2)}%</span>
+        <span className="text-slate-500">CoW Protocol · DEKXDIS: 25% of surplus, capped at 1% of volume · no flat DEKXDIS fee</span>
       </div>
 
     </div>
