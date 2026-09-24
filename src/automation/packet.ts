@@ -2,13 +2,15 @@ import { ethers } from 'ethers';
 import type { TradeOrder } from '../types/trading';
 import type { Workspace } from './settings';
 import type { OrderCommand } from '../services/orderPlacement';
-import { historyTokenSide } from '../utils/orderHistory';
+import { displayOrderCategory, historyTokenSide, orderHistoryTime, orderLimitPriceUsd, type NativeUsdSnapshot } from '../utils/orderHistory';
 import { getTradingQuoteToken } from '../types/chains';
 import { positionLots } from '../utils/positions';
 
-export const RESPONSE_FORMAT = `Return only JSON: {"reason":"brief explanation", "orders":[{"side":"buy", "price":1.23, "amount":"10", "amountUnit":"usd", "takeProfitPrice":1.4, "stopLossPrice":1.1}]}.
+export const RESPONSE_FORMAT = `Return only JSON: {"reason":"brief explanation", "cancelOrderIds":[], "orders":[{"side":"buy", "price":1.23, "amount":"10", "amountUnit":"usd", "takeProfitPrice":1.4, "stopLossPrice":1.1}]}.
+cancelOrderIds is an optional array of exact ids from openOrders. To cancel without placing an order, return {"reason":"explanation","cancelOrderIds":["order id"],"orders":[]}. To cancel and replace, include the old id in cancelOrderIds and the new order in orders in the same response. The user's editable instructions determine whether and when to cancel, replace, buy or sell; this response format does not define a trading strategy.
+Cancellations run first through the normal order engine. New orders then use the current buy count, trading allowance, wallet funds and time between trades. Cancelled buys free their pending buy slots and reserved funds. Cancellation alone is allowed even when no new buys are allowed. If cancellation fails or the old order has filled, no new orders from that response are placed. Cancelling an OCO leg also cancels its connected active legs. A filled buy is a position to sell, not an open order to cancel.
 To sell a bought position, use {"side":"sell","price":1.4,"positionId":"the entry.id from openPositions"}. The application sells that buy's actual remaining available token quantity, not the original USD spending amount. Omit amount and amountUnit for position sells. If positionId is omitted, the oldest available buy is selected. Each sell closes one available bought position; submit separate sells for multiple positions. Positions reserved for TP, SL or an existing sell cannot be sold again. Pending sells do not count as sold until they fill.
-An empty orders array means wait. Each order is for the supplied workspace token. side is buy or sell. price, takeProfitPrice and stopLossPrice are positive USD display prices; actual settlement is in tokens. Buy amount is a positive decimal string, amountUnit is usd or token. In fixed amount mode the application uses the user's amount and unit for buys only. TP and SL are individually optional. Buy protections activate after a confirmed fill. A position sell is a limit sell by default; sellKind:"stop" creates a conditional stop. For a limit sell, stopLossPrice adds its OCO stop; for a stop sell, takeProfitPrice adds its OCO limit. Do not set takeProfitPrice on a limit sell or stopLossPrice on a stop sell: price already specifies that leg. Follow the user's instructions and supplied settings. No other response fields or actions are supported.`;
+Empty cancelOrderIds and orders arrays mean wait. Each order is for the supplied workspace token. side is buy or sell. price, takeProfitPrice and stopLossPrice are positive USD display prices; actual settlement is in tokens. Buy amount is a positive decimal string, amountUnit is usd or token. In fixed amount mode the application uses the user's amount and unit for buys only. TP and SL are individually optional. Buy protections activate after a confirmed fill. A position sell is a limit sell by default; sellKind:"stop" creates a conditional stop. For a limit sell, stopLossPrice adds its OCO stop; for a stop sell, takeProfitPrice adds its OCO limit. Do not set takeProfitPrice on a limit sell or stopLossPrice on a stop sell: price already specifies that leg. Follow the user's instructions and supplied settings. No other response fields or actions are supported.`;
 
 export function workspaceOrders(orders: TradeOrder[], w: Workspace) {
   return orders.filter(o => o.ownerAddress?.toLowerCase() === w.owner.toLowerCase() && o.chainId === w.chainId &&
@@ -17,14 +19,14 @@ export function workspaceOrders(orders: TradeOrder[], w: Workspace) {
 export const working = (o: TradeOrder) => o.status === 'open' || o.status === 'pending';
 export const openBuyCount = (orders: TradeOrder[], w: Workspace) => workspaceOrders(orders, w)
   .filter(o => working(o) && o.buyToken.toLowerCase() === w.token.address.toLowerCase()).length;
-export function describeOrder(o: TradeOrder) {
+export function describeOrder(o: TradeOrder, native?: NativeUsdSnapshot, orders: TradeOrder[] = []) {
   const side = historyTokenSide(o), sold = Number(o.executedSellAmount), received = Number(o.executedBuyAmount);
   const averageFillPriceQuote = sold > 0 && received > 0 && Number.isFinite(sold) && Number.isFinite(received)
     ? side === 'buy' ? sold / received : received / sold : null;
   const fillRate = Number(o.executedQuoteUsdPrice);
   const averageFillPriceUsd = averageFillPriceQuote !== null && Number.isFinite(fillRate) && fillRate > 0 ? averageFillPriceQuote * fillRate : null;
-  return { id: o.id, side, status: o.status, category: o.orderCategory, createdAt: o.timestamp,
-    limitPriceUsd: o.limitPrice, averageFillPriceQuote, averageFillPriceUsd,
+  return { id: o.id, side, status: o.status, category: displayOrderCategory(o, orders), createdAt: o.timestamp,
+    limitPriceUsd: working(o) ? orderLimitPriceUsd(o, native) ?? null : o.limitPrice, placedLimitPriceUsd: o.limitPrice, averageFillPriceQuote, averageFillPriceUsd,
     quoteToken: side === 'buy' ? o.sellToken : o.buyToken, quoteSymbol: side === 'buy' ? o.sellSymbol : o.buySymbol,
     fillQuoteUsdConversion: Number.isFinite(fillRate) && fillRate > 0 ? fillRate : null,
     fillQuoteUsdConversionObservedAt: o.executedQuotePriceTimestamp ?? null,
@@ -39,11 +41,12 @@ export function describeOrder(o: TradeOrder) {
 
 /** Build a view of the main order history, not a second ledger. Manual sells use FIFO
  * for attribution; current wallet balance is supplied separately, including transfers. */
-export function tradePacket(orders: TradeOrder[], w: Workspace, historyCount: number) {
+export function tradePacket(orders: TradeOrder[], w: Workspace, historyCount: number, native?: NativeUsdSnapshot) {
   const all = workspaceOrders(orders, w).sort((a, b) => a.timestamp - b.timestamp);
   const positions = positionLots(all, w);
+  const describe = (order: TradeOrder) => describeOrder(order, native, all);
   const describePosition = (p: typeof positions[number]) => {
-    const entry = describeOrder(p.order), amount = ethers.formatUnits(p.remaining > 0n ? p.remaining : 0n, w.token.decimals);
+    const entry = describe(p.order), amount = ethers.formatUnits(p.remaining > 0n ? p.remaining : 0n, w.token.decimals);
     return { entry, boughtTokenAmount: ethers.formatUnits(p.bought, w.token.decimals), remainingTokenAmount: amount,
       reservedTokenAmount: ethers.formatUnits(p.reserved, w.token.decimals), availableTokenAmount: ethers.formatUnits(p.available, w.token.decimals),
       purchaseCostUsd: entry.averageFillPriceUsd === null ? null : Number(ethers.formatUnits(p.bought, w.token.decimals)) * entry.averageFillPriceUsd,
@@ -57,7 +60,7 @@ export function tradePacket(orders: TradeOrder[], w: Workspace, historyCount: nu
     ? openPositions.reduce((sum, p) => sum + p.remainingCostUsd!, 0) : null;
   const costBasisQuote = openPositions.length && openPositions.every(p => p.remainingCostQuote !== null && p.entry.quoteToken.toLowerCase() === quote.address.toLowerCase())
     ? openPositions.reduce((sum, p) => sum + p.remainingCostQuote!, 0) : null;
-  return { openBuyCount: openBuyCount(all, w), openOrders: all.filter(working).map(describeOrder),
+  return { openBuyCount: openBuyCount(all, w), openOrders: all.filter(working).map(describe),
     openPositions, positionSummary: { unsoldBuyCount: openPositions.length, availableBuyCount: positions.filter(p => p.available > 0n).length,
       availableTokenAmount: ethers.formatUnits(positions.reduce((sum, p) => sum + p.available, 0n), w.token.decimals),
       reservedTokenAmount: ethers.formatUnits(positions.reduce((sum, p) => sum + p.reserved, 0n), w.token.decimals),
@@ -66,16 +69,20 @@ export function tradePacket(orders: TradeOrder[], w: Workspace, historyCount: nu
       averageEntryPriceQuote: costBasisQuote === null ? null : costBasisQuote / Number(remainingTokenAmount),
       quoteToken: quote.address, quoteSymbol: quote.symbol },
     recentClosedPositions: historyCount ? positions.filter(p => p.remaining <= 0n).slice(-historyCount).map(describePosition) : [],
-    recentOrders: historyCount ? all.filter(o => !working(o)).slice(-historyCount).map(describeOrder) : [],
+    recentOrders: historyCount ? all.filter(o => !working(o)).sort((a, b) => (orderHistoryTime(a) ?? 0) - (orderHistoryTime(b) ?? 0)).slice(-historyCount).map(describe) : [],
     positionAttribution: 'Confirmed local fills; linked exits first, other sells FIFO by fill time. Each buy stays in unsoldBuyCount until its remaining tokens are sold. Pending exits only reserve tokens. Transfers are reflected only in wallet balances.',
-    priceBasis: 'Limit prices are requested prices. Average fill prices use executed amounts. USD fill values use the conversion observed during reconciliation, not an exact settlement-time oracle. Null means unavailable. Position averages weight only the remaining quantities.' };
+    priceBasis: 'For open orders, limitPriceUsd is the current USD equivalent of the signed token ratio using chart.nativePriceSnapshot; null means unavailable. placedLimitPriceUsd is the originally requested USD price. Local conditional stop triggers remain fixed in USD. Average fill prices use executed amounts. USD fill values use the conversion observed during reconciliation, not an exact settlement-time oracle. Null means unavailable. Position averages weight only the remaining quantities.' };
 }
 
-export function parseDecision(text: string): { reason: string; orders: OrderCommand[] } {
+export function parseDecision(text: string): { reason: string; cancelOrderIds: string[]; orders: OrderCommand[] } {
   const clean = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
   const value = JSON.parse(clean);
   if (!value || typeof value !== 'object' || Array.isArray(value) || !Array.isArray(value.orders) || typeof value.reason !== 'string' ||
-    Object.keys(value).some(k => k !== 'orders' && k !== 'reason')) throw new Error('Model response must contain reason and orders');
+    Object.keys(value).some(k => !['orders', 'reason', 'cancelOrderIds'].includes(k))) throw new Error('Model response must contain reason, orders and optional cancelOrderIds');
+  const cancelOrderIds = value.cancelOrderIds ?? [];
+  if (!Array.isArray(cancelOrderIds) || cancelOrderIds.some((id: unknown) => typeof id !== 'string' || !id.trim())) {
+    throw new Error('cancelOrderIds must be an array of open order IDs');
+  }
   const fields = new Set(['side', 'price', 'amount', 'amountUnit', 'takeProfitPrice', 'stopLossPrice', 'sellKind', 'positionId']);
   for (const order of value.orders) {
     if (!order || typeof order !== 'object' || Array.isArray(order) || Object.keys(order).some(k => !fields.has(k))) throw new Error('Unsupported model order fields');
@@ -94,5 +101,5 @@ export function parseDecision(text: string): { reason: string; orders: OrderComm
     if (order.side === 'sell' && (order.sellKind === 'stop' ? order.stopLossPrice !== undefined || order.takeProfitPrice <= order.price
       : order.takeProfitPrice !== undefined || order.stopLossPrice >= order.price)) throw new Error('Invalid connected sell prices');
   }
-  return { reason: value.reason.slice(0, 600), orders: value.orders };
+  return { reason: value.reason.slice(0, 600), cancelOrderIds: [...new Set<string>(cancelOrderIds)], orders: value.orders };
 }

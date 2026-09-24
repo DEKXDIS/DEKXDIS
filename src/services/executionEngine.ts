@@ -183,13 +183,15 @@ function enrichSettlement(order: TradeOrder, wallet: WalletState) {
 }
 
 /** Cancellation and its confirmation use the CoW orderbook exclusively. */
-async function invalidate(order: TradeOrder, wallet: WalletState): Promise<'filled' | 'cancelled'> {
+async function invalidate(order: TradeOrder, wallet: WalletState, checkCurrent?: () => void): Promise<'filled' | 'cancelled'> {
   const checkOwner = () => {
     if (nativeStore.getWallet()?.address !== wallet.address) throw new Error('Wallet changed before order cancellation');
   };
   checkOwner();
+  checkCurrent?.();
   await sync(order);
   checkOwner();
+  checkCurrent?.();
   const remote = store.getOrders().find(o => o.id === order.id)!;
   if (remote.status === 'fulfilled') return 'filled';
   if (remote.status === 'cancelled' || remote.status === 'expired') return 'cancelled';
@@ -205,10 +207,11 @@ async function invalidate(order: TradeOrder, wallet: WalletState): Promise<'fill
   return 'cancelled';
 }
 
-async function cancelOne(order: TradeOrder, wallet: WalletState) {
+async function cancelOne(order: TradeOrder, wallet: WalletState, checkCurrent?: () => void) {
+  checkCurrent?.();
   if (order.ownerAddress && order.ownerAddress.toLowerCase() !== wallet.address.toLowerCase()) throw new Error('Order belongs to another wallet');
   if (order.isConditional) { await patchOrder(order.id, { status: 'cancelled' }); return; }
-  const result = await invalidate(order, wallet);
+  const result = await invalidate(order, wallet, checkCurrent);
   if (result === 'filled') throw new Error('CoW confirmed the order already filled');
   await patchOrder(order.id, { status: 'cancelled', protectionError: undefined });
 }
@@ -384,18 +387,19 @@ export const executionEngine = {
         } finally { priceRequests.delete(key); }
       }));
   },
-  async cancel(id: string, wallet: WalletState) {
+  async cancel(id: string, wallet: WalletState, checkCurrent?: () => void) {
     const selected = store.getOrders().find(o => o.id === id);
     if (!selected) throw new Error('Order not found');
     return orderExclusive(selected, async () => {
+      checkCurrent?.();
       const orders = store.getOrders();
       const target = orders.find(o => o.id === id);
       if (!target) throw new Error('Order not found');
       if (!active(target)) throw new Error('Order is already closed');
       // Revoke real legs first; retain the local stop if revocation fails.
       const group = [target, ...ocoPeers(target)].filter(active);
-      for (const o of group.filter(o => !o.isConditional)) await cancelOne(o, wallet);
-      for (const o of group.filter(o => o.isConditional)) await cancelOne(o, wallet);
+      for (const o of group.filter(o => !o.isConditional)) await cancelOne(o, wallet, checkCurrent);
+      for (const o of group.filter(o => o.isConditional)) await cancelOne(o, wallet, checkCurrent);
       const parents = store.getOrders().filter(o => o.bracket && (o.id === target.parentOrderId || o.bracket.tpOrderId === id || o.bracket.slOrderId === id));
       for (const parent of parents) await patchOrder(parent.id, { bracket: { ...parent.bracket!, isCompleted: true } });
     });

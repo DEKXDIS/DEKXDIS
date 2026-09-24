@@ -586,6 +586,14 @@ export const App: React.FC = () => {
     return () => clearInterval(interval);
   }, [refreshNativePrice]);
 
+  // Expire the display conversion even if the next market request stalls.
+  useEffect(() => {
+    if (!nativePriceSnapshot) return;
+    const timer = setTimeout(() => setNativePriceSnapshot(current => current === nativePriceSnapshot ? undefined : current),
+      Math.max(0, nativePriceSnapshot.timestamp + 30000 - Date.now()));
+    return () => clearTimeout(timer);
+  }, [nativePriceSnapshot]);
+
   // Balance & Allowance Refresh
   const balanceRequest = useRef(0);
   const refreshBalances = useCallback(async (retryWalletValue = false) => {
@@ -1165,6 +1173,7 @@ export const App: React.FC = () => {
               onPriceSelected={handleChartPriceClick}
               onCancelOrder={handleCancelOrder}
               livePrice={marketPrice.price}
+              nativePriceSnapshot={nativePriceSnapshot}
               onCandlesUpdated={setCandles}
               onIntervalChange={setActiveChartTimeframe}
             />
@@ -1181,6 +1190,7 @@ export const App: React.FC = () => {
           >
             <OrderHistory
               orders={orders}
+              nativePriceSnapshot={nativePriceSnapshot}
               fundingStatuses={fundingStatuses}
               selectedToken={selectedToken}
               selectedChainId={selectedChainId}

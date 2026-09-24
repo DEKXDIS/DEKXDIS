@@ -17,7 +17,7 @@ import {
 import { TradeOrder, TokenConfig } from '../types/trading';
 import { getChainConfig } from '../types/chains';
 import { formatTokenDisplay, formatUsdDisplay } from '../utils/displayFormat';
-import { buildFilledExitPnls, historyPrice, orderHistoryTab, OrderHistoryTab, userOrderId } from '../utils/orderHistory';
+import { buildFilledExitPnls, displayOrderCategory, historyPrice, orderHistoryTime, orderHistoryTab, OrderHistoryTab, userOrderId, type NativeUsdSnapshot } from '../utils/orderHistory';
 import { openExplorerLink } from '../services/explorerLinks';
 import type { OrderFundingStatus } from '../utils/orderFunding';
 import { storageService } from '../services/storageService';
@@ -25,6 +25,7 @@ import { positionLots } from '../utils/positions';
 
 interface OrderHistoryProps {
   orders: TradeOrder[];
+  nativePriceSnapshot?: NativeUsdSnapshot;
   fundingStatuses?: Map<string, OrderFundingStatus>;
   selectedToken?: TokenConfig;
   selectedChainId?: number;
@@ -37,6 +38,7 @@ interface OrderHistoryProps {
 
 export const OrderHistory: React.FC<OrderHistoryProps> = ({
   orders,
+  nativePriceSnapshot,
   fundingStatuses,
   selectedToken,
   selectedChainId,
@@ -116,7 +118,8 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({
     { id: 'CANCELLED', label: 'Cancelled' },
   ];
   const tabCounts = new Map(historyTabs.map(tab => [tab.id, baseFilteredOrders.filter(order => orderHistoryTab(order) === tab.id).length]));
-  const filteredOrders = baseFilteredOrders.filter(order => orderHistoryTab(order) === statusTab);
+  const filteredOrders = baseFilteredOrders.filter(order => orderHistoryTab(order) === statusTab)
+    .sort((a, b) => (orderHistoryTime(b) ?? 0) - (orderHistoryTime(a) ?? 0));
 
   const selectAdjacentTab = (event: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
     let next = index;
@@ -132,18 +135,19 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({
 
   const exportCsv = () => {
     if (orders.length === 0) return;
-    const headers = ['Order ID', 'Chain ID', 'Type', 'Category', 'Timestamp', 'Sell Amount', 'Sell Symbol', 'Buy Amount', 'Buy Symbol', 'Execution Price', 'Status', 'PnL USD', 'Tx Hash', 'Explorer URL'];
-    const rows = orders.map((o) => [
+    const headers = ['Order ID', 'Chain ID', 'Type', 'Category', 'Placed at', 'Filled at', 'Sell Amount', 'Sell Symbol', 'Buy Amount', 'Buy Symbol', 'Execution Price', 'Status', 'PnL USD', 'Tx Hash', 'Explorer URL'];
+    const rows = orders.slice().sort((a, b) => (orderHistoryTime(b) ?? 0) - (orderHistoryTime(a) ?? 0)).map((o) => [
       userOrderId(o) || '',
       o.chainId || 56,
       o.type,
-      o.orderCategory || '',
+      displayOrderCategory(o, accountingOrders) || '',
       new Date(o.timestamp).toISOString(),
+      o.status === 'fulfilled' && orderHistoryTime(o) ? new Date(orderHistoryTime(o)!).toISOString() : '',
       o.sellAmount,
       o.sellSymbol,
       o.buyAmount,
       o.buySymbol,
-      historyPrice(o)?.toFixed(4) ?? '',
+      historyPrice(o, nativePriceSnapshot)?.toFixed(4) ?? '',
       o.status,
       pnlByOrder.get(o.id) ?? '',
       o.txHash || '',
@@ -359,11 +363,11 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({
           <table className="w-full text-left text-xs font-mono">
             <thead className="sticky top-0 bg-surface z-10">
               <tr className="border-b border-surface-border text-slate-400 uppercase text-[9px] tracking-wider">
-                <th className="pb-1.5 pl-1.5">Time</th>
+                <th className="pb-1.5 pl-1.5">{statusTab === 'FILLED' ? 'Filled at' : 'Placed at'}</th>
                 <th className="pb-1.5">Pair / Side</th>
                 <th className="pb-1.5">Token amount traded</th>
                 <th className="pb-1.5">USD value</th>
-                <th className="pb-1.5">Execution Price</th>
+                <th className="pb-1.5">{statusTab === 'WAITING' ? 'Current limit (USD)' : 'Execution Price'}</th>
                 <th className="pb-1.5">PnL</th>
                 <th className="pb-1.5">Status</th>
                 <th className="pb-1.5 text-right pr-1.5">Actions</th>
@@ -371,15 +375,17 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({
             </thead>
             <tbody className="divide-y divide-surface-border/30">
               {filteredOrders.map((order) => {
-                const isLimit = order.orderCategory === 'limit';
-                const isLimitSell = order.orderCategory === 'limit_sell';
-                const isTp = order.orderCategory === 'take_profit';
-                const isSl = order.orderCategory === 'stop_loss';
-                const isStrategyBuy = order.orderCategory === 'strategy_buy';
+                const category = displayOrderCategory(order, accountingOrders);
+                const displayTime = orderHistoryTime(order);
+                const isLimit = category === 'limit';
+                const isLimitSell = category === 'limit_sell';
+                const isTp = category === 'take_profit';
+                const isSl = category === 'stop_loss';
+                const isStrategyBuy = category === 'strategy_buy';
                 const chainConf = getChainConfig(order.chainId || 56);
                 const displayId = userOrderId(order);
                 const pnl = pnlByOrder.get(order.id);
-                const price = historyPrice(order);
+                const price = historyPrice(order, nativePriceSnapshot);
                 const tokenSide = historyTokenSide(order);
                 const isFilled = order.status === 'fulfilled';
                 const tokenAmount = isFilled
@@ -388,7 +394,7 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({
                 const tokenSymbol = tokenSide === 'buy' ? order.buySymbol : order.sellSymbol;
                 const hasTokenAmount = tokenAmount !== undefined && tokenAmount.trim() !== '' &&
                   Number.isFinite(Number(tokenAmount)) && Number(tokenAmount) > 0;
-                const usdValue = orderAmountUsd(order, tokenSide);
+                const usdValue = orderAmountUsd(order, tokenSide, nativePriceSnapshot);
 
                 return (
                   <tr key={order.id} className="hover:bg-surface-hover/50 transition-colors cursor-pointer"
@@ -402,8 +408,10 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({
                     }}>
                     
                     {/* Time */}
-                    <td className="py-2 pl-1.5 text-[11px] text-slate-400 whitespace-nowrap">
-                      {new Date(order.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                    <td className="py-2 pl-1.5 text-[11px] text-slate-400 whitespace-nowrap"
+                      title={`Placed: ${new Date(order.timestamp).toLocaleString()}${isFilled && displayTime ? ` · Filled: ${new Date(displayTime).toLocaleString()}` : ''}`}>
+                      {displayTime ? new Date(displayTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'Unavailable'}
+                      {isFilled && <div className="text-[9px] text-slate-500">Placed {new Date(order.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>}
                     </td>
 
                     {/* Pair & Side Badge */}
@@ -472,7 +480,7 @@ export const OrderHistory: React.FC<OrderHistoryProps> = ({
 
                     {/* Realized TP / SL PnL from confirmed fills */}
                     <td className={`py-2 text-[11px] font-semibold whitespace-nowrap ${pnl === undefined ? 'text-slate-500' : pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                      {order.status === 'fulfilled' && (isTp || isSl)
+                      {order.status === 'fulfilled' && tokenSide === 'sell'
                         ? pnl === undefined ? 'Unavailable' : `${pnl >= 0 ? '+' : '-'}$${formatUsdDisplay(Math.abs(pnl))}`
                         : '—'}
                     </td>

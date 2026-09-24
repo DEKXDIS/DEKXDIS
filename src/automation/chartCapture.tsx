@@ -1,3 +1,4 @@
+import { tradingQuoteUsdPrice } from '../services/tradingQuote';
 import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { storageService } from '../services/storageService';
@@ -11,6 +12,8 @@ export async function captureWorkspace(w: Workspace, signal: AbortSignal): Promi
   if (visible) return visible();
   const { TradingViewChart } = await import('../components/TradingViewChart');
   signal.throwIfAborted();
+  const nativePriceSnapshot = { chainId: w.chainId, price: await tradingQuoteUsdPrice(w.chainId), timestamp: Date.now() };
+  signal.throwIfAborted();
   const view = readChartView(key, storageService.getChartSettings());
   const container = document.createElement('div');
   // On demand only: background workspaces have no continuously mounted extra chart.
@@ -21,8 +24,13 @@ export async function captureWorkspace(w: Workspace, signal: AbortSignal): Promi
   const root = createRoot(container);
   function SnapshotChart({ ready, failed }: { ready: (capture: () => ChartCapture) => void; failed: (error: string) => void }) {
     const [orders, setOrders] = useState(() => storageService.getOrders());
+    const [quote, setQuote] = useState<typeof nativePriceSnapshot | undefined>(nativePriceSnapshot);
     useEffect(() => storageService.subscribe(() => setOrders(storageService.getOrders())), []);
-    return <TradingViewChart token={w.token} chainId={w.chainId} orders={orders}
+    useEffect(() => {
+      const timer = setTimeout(() => setQuote(undefined), Math.max(0, nativePriceSnapshot.timestamp + 30000 - Date.now()));
+      return () => clearTimeout(timer);
+    }, []);
+    return <TradingViewChart token={w.token} chainId={w.chainId} orders={orders} nativePriceSnapshot={quote}
       chartMarkers={storageService.getChartMarkers()} strategyConfig={storageService.getTokenStrategies()[`${w.chainId}_${w.token.address.toLowerCase()}`] || storageService.getStrategyConfig(w.chainId)}
       snapshotOnly onCaptureReady={ready} onCaptureError={failed} />;
   }

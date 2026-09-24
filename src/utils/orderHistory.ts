@@ -2,8 +2,50 @@ import { getChainConfig } from '../types/chains';
 import type { TradeOrder } from '../types/trading';
 
 export type OrderHistoryTab = 'WAITING' | 'FILLED' | 'CANCELLED';
+export type NativeUsdSnapshot = { chainId: number; price: number; timestamp: number };
 
 const positive = (value: string | undefined) => Number.isFinite(Number(value)) && Number(value) > 0;
+
+/** Filled rows use fill evidence, never the time the order was placed. */
+export function orderHistoryTime(order: TradeOrder): number | undefined {
+  const times = order.status === 'fulfilled' ? [order.settlementTimestamp, order.fillTimestamp] : [order.timestamp];
+  return times.find((time): time is number => Number.isFinite(time) && Number(time) > 0);
+}
+
+/** Correct the old standalone-sell label for display without rewriting signed orders. */
+export function displayOrderCategory(order: TradeOrder, orders: TradeOrder[]): TradeOrder['orderCategory'] {
+  if (order.orderCategory !== 'take_profit' || !order.quoteTokenAddress || order.connectedOrderId) return order.orderCategory;
+  const related = orders.filter(o => o.chainId === order.chainId && o.ownerAddress?.toLowerCase() === order.ownerAddress?.toLowerCase());
+  const parent = related.find(o => o.id === order.parentOrderId);
+  if (parent?.bracket?.tpEnabled || related.some(o => o.isConditional &&
+    (o.connectedOrderId === order.id || (!!order.ocoGroupId && o.ocoGroupId === order.ocoGroupId)))) return order.orderCategory;
+  if (order.automationRequestId || (parent && !parent.bracket) || (!order.parentOrderId && order.tradeSide === 'sell')) return 'limit_sell';
+  return order.orderCategory;
+}
+
+/** A signed token ratio has a moving USD value. Local stop triggers stay in USD. */
+export function orderLimitPriceUsd(order: TradeOrder, native?: NativeUsdSnapshot): number | undefined {
+  if (order.isConditional) {
+    const trigger = order.triggerPrice || order.limitPrice;
+    return Number.isFinite(trigger) && Number(trigger) > 0 ? trigger : undefined;
+  }
+  const rate = currentQuoteUsdRate(order, native);
+  const sell = Number(order.sellAmount), buy = Number(order.buyAmount);
+  if (rate === undefined || !positive(order.sellAmount) || !positive(order.buyAmount)) return undefined;
+  const price = (historyTokenSide(order) === 'buy' ? sell / buy : buy / sell) * rate;
+  return Number.isFinite(price) && price > 0 ? price : undefined;
+}
+
+function currentQuoteUsdRate(order: TradeOrder, native?: NativeUsdSnapshot): number | undefined {
+  if (!order.chainId) return undefined;
+  const chain = getChainConfig(order.chainId);
+  const quote = (historyTokenSide(order) === 'buy' ? order.sellToken : order.buyToken).toLowerCase();
+  if (!order.quoteTokenAddress && quote === chain.usdtToken.address.toLowerCase()) return 1;
+  if (quote !== chain.nativeToken.wrappedAddress.toLowerCase() || native?.chainId !== order.chainId ||
+    !Number.isFinite(native.price) || native.price <= 0 || !Number.isFinite(native.timestamp) ||
+    Date.now() - native.timestamp >= 30000 || native.timestamp > Date.now() + 1000) return undefined;
+  return native.price;
+}
 
 export function historyTokenSide(order: TradeOrder): 'buy' | 'sell' {
   if (order.tradeSide) return order.tradeSide;
@@ -14,9 +56,10 @@ export function historyTokenSide(order: TradeOrder): 'buy' | 'sell' {
 }
 
 /** Display pending intent/quote prices without writing them into confirmed execution data. */
-export function historyPrice(order: TradeOrder): number | undefined {
+export function historyPrice(order: TradeOrder, native?: NativeUsdSnapshot): number | undefined {
   const valid = (value: number | undefined): value is number => Number.isFinite(value) && Number(value) > 0;
   if (order.status === 'fulfilled') return valid(order.executionPrice) ? order.executionPrice : undefined;
+  if (order.status === 'open' || order.status === 'pending') return orderLimitPriceUsd(order, native);
   if (order.isConditional && valid(order.triggerPrice)) return order.triggerPrice;
   if (valid(order.limitPrice)) return order.limitPrice;
   if (valid(order.executionPrice)) return order.executionPrice;
@@ -84,12 +127,12 @@ export function quoteUsdRate(order: TradeOrder): number | undefined {
   return /^(USDT|USDC)(_|$)|^(DAI|WXDAI|FDUSD)$/.test(symbol || '') ? 1 : undefined;
 }
 
-export function orderAmountUsd(order: TradeOrder, side: 'sell' | 'buy'): number | undefined {
+export function orderAmountUsd(order: TradeOrder, side: 'sell' | 'buy', native?: NativeUsdSnapshot): number | undefined {
   const amount = Number(order.status === 'fulfilled'
     ? side === 'sell' ? order.executedSellAmount : order.executedBuyAmount
     : side === 'sell' ? order.sellAmount : order.buyAmount);
   if (!Number.isFinite(amount) || amount < 0) return undefined;
   const quoteSide = historyTokenSide(order) === 'buy' ? 'sell' : 'buy';
-  const rate = side === quoteSide ? quoteUsdRate(order) : historyPrice(order);
+  const rate = side === quoteSide ? (order.status === 'open' || order.status === 'pending' ? currentQuoteUsdRate(order, native) : quoteUsdRate(order)) : historyPrice(order, native);
   return rate === undefined ? undefined : amount * rate;
 }

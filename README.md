@@ -5,7 +5,9 @@ Trade pretty much any ERC-20 token with Realtime charts from Tradingview.
 Select a token or import your own from the drop-down window.  Imported contract addresses, run a GoPlus security scan, it gives you some information about the token, but you should always check out the token you want to trade yourself.  
 To place a trade just right click the chart and it will give you a window with the price you clicked at, you can edit the price, the amount you want to trade, add a SL and/or TP OCO and it takes care of the rest.  Understand the Stop losses are not perfect in Defi, major dumps it will not protect you.  Besides you want to buy the dip not sell the dip. Just saying, oh and myself or DEKXDIS is not giving you any finical advice, anything you do or lose is your own decision.  Don’t be a dummy, only trade what you can afford to lose.
 
-**Set Your Price. Capture the Surplus. Pay 0% in Flat Fees.**
+**Set Your Price. Capture the Surplus. Pay 0% in Flat DEKXDIS Fees.**
+
+CoW Protocol also charges a small **0.02% volume fee for standard assets**. If no surplus is generated, that fee still applies. This has been rare in our own trading: only **two out of more than 1,000 trades** produced no surplus. Read on to understand how it works.
 
 When you trade on our platform, you are always in complete control. You set the exact price you want for your tokens—your order will swap at that price, **and absolutely no less. But it can be more.**
 
@@ -20,18 +22,18 @@ Imagine you want to sell Token A. You place an order intent stating you want to 
 1. **The Solver Auction:** Your order goes out to a competitive batch auction where solvers bid to find you the absolute highest return. Solver 1 finds a route for $101, Solver 2 finds one for $102... **Sold!**
 2. **The Surplus:** They just secured an execution price that is **$2.00 more** than you were originally asking for. This $2.00 is your trade surplus.
 3. **The Clear Payout Breakdown:**
-   - **CoW Protocol Fee:** CoW Protocol rewards the winning solver with 50% of the surplus (capped at 1% of total trade volume), which amounts to **$0.50**.
-   - **Dekxdis Fee:** Our platform takes a 25% performance cut of the surplus, which amounts to **$0.25**.
-   - **Your Share:** You keep the remaining 25%, plus 100% of any surplus that exceeds the 1% volume cap. In this scenario, **you make off with the lion's share of $1.25** on top of your requested amount.
+   - **CoW Protocol Fee:** CoW Protocol charges 50% of the surplus (capped at 0.98% of total trade volume), plus a **0.02% volume fee** for standard assets. Together, these amount to approximately **$1.020** in this example.
+   - **Dekxdis Fee:** Our platform takes a 25% performance cut of the surplus remaining after CoW Protocol fees (capped at 1% of trade volume), which amounts to approximately **$0.245**.
+   - **Your Share:** You keep the remaining surplus after those capped fees. In this scenario, **you walk away with approximately $0.735 extra**, receiving **$100.74** after rounding.
 
 You received exactly what you wanted for your tokens, all platform and protocol infrastructure costs were fully covered, and you walked away with extra money in your wallet. It is a true win-win for everyone.
 
 **Why This Beats Traditional Exchanges**
 
 - **No Artificial Markups:** Say goodbye to hidden fees, artificial spreads, and slippage nonsense.
-- **Zero Cost for Base Execution:** If the market doesn't allow solvers to find a surplus, your order still fills exactly at your requested price, and **you pay $0 to anyone**. No surplus means no payout.
+- **Minimal Cost for Base Execution:** If the market doesn't allow solvers to find a surplus, CoW Protocol still charges its **0.02% volume fee** for standard assets—about **$0.02 on a $100 trade**. There is no surplus-based payout, and Dekxdis doesn't get anything. This has been rare in our own trading: only two out of more than 1,000 trades did not generate a surplus.
 - **No Risk on Cancellations:** If you decide to cancel your order before it fills, you pay nothing.
-- **Outperforming Centralized Exchanges (CEXs):** Traditional centralized platforms charge flat fees anywhere from **0.1% up to 2%** on your total order size. On a $100 trade, a standard exchange might swallow your funds in fees, leaving you with only **$98** for tokens you wanted $100 for. On our platform, you leave with **$101.25**.
+- **Outperforming Centralized Exchanges (CEXs):** Traditional centralized platforms charge flat fees anywhere from **0.1% up to 2%** on your total order size. On a $100 trade, a standard exchange might swallow your funds in fees, leaving you with only **$98** for tokens you wanted $100 for. In this example, on our platform you leave with **$100.74**.
 
 Ready to see how intent-based trading protects your capital? **Explore CoW Protocol here** to learn more about the underlying architecture, or **download the Dekxdis software** to start trading for free today.
 

@@ -1,6 +1,8 @@
+import type { NativeUsdSnapshot } from '../utils/orderHistory';
 import type { TradeOrder } from '../types/trading';
 export interface ChartCapture {
   image: string; capturedAt: number; interval: string; lastCandle: unknown;
+  nativePriceSnapshot?: NativeUsdSnapshot;
   orders: TradeOrder[]; width: number; height: number;
 }
 const charts = new Map<string, () => ChartCapture>();

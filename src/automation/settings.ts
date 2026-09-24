@@ -7,7 +7,8 @@ export interface AutomationSettings {
   maxFundsUsd: string;
 }
 export const defaultSettings: AutomationSettings = {
-  prompt: '', model: '', intervalSeconds: 60, tradeIntervalSeconds: 0,
+  prompt: 'place two buy orders above the support level and two below.  sell the orders when it is close to a resistance.  you can save one for a break out if you chose. if buy orders get stale you can cancel and replace them, stale is at least 60 candles old, and the token is ranging in a higher price range.  do not include tp or sl with the orders.',
+  model: 'gpt-6-luna', intervalSeconds: 60, tradeIntervalSeconds: 0,
   maxOpenBuys: 4, amountMode: 'fixed', amount: '10', amountUnit: 'usd', historyCount: 20, maxFundsUsd: '',
 };
 const prefix = 'dekxdis_automation_settings_v1:';

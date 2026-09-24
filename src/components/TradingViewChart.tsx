@@ -4,6 +4,7 @@ import { readChartView, saveChartView, workspaceKey } from '../automation/settin
 import { registerChart, type ChartCapture } from '../automation/chartRegistry';
 import { ChartOrderLabels, shortChartId } from './chartOrderLabels';
 import { buildFillMarkers } from '../utils/fillMarkers';
+import { displayOrderCategory, orderLimitPriceUsd, type NativeUsdSnapshot } from '../utils/orderHistory';
 import React, { useEffect, useLayoutEffect, useRef, useState, memo, useCallback } from 'react';
 import { 
   createChart, 
@@ -60,6 +61,7 @@ interface TradingViewChartProps {
   onPriceSelected?: (price: number, candleTime?: number) => void;
   onCancelOrder?: (orderId: string) => void;
   livePrice?: number;
+  nativePriceSnapshot?: NativeUsdSnapshot;
   onCandlesUpdated?: (candles: CandlestickData<Time>[]) => void;
   onIntervalChange?: (interval: string) => void;
   snapshotOnly?: boolean;
@@ -77,6 +79,7 @@ export const TradingViewChart: React.FC<TradingViewChartProps> = memo(({
   onPriceSelected,
   onCancelOrder,
   livePrice,
+  nativePriceSnapshot,
   onCandlesUpdated,
   onIntervalChange,
   snapshotOnly = false,
@@ -123,6 +126,8 @@ export const TradingViewChart: React.FC<TradingViewChartProps> = memo(({
   const onCandlesUpdatedRef = useRef(onCandlesUpdated);
   const livePriceRef = useRef(livePrice);
   const ordersRef = useRef(orders);
+  const nativePriceSnapshotRef = useRef(nativePriceSnapshot);
+  nativePriceSnapshotRef.current = nativePriceSnapshot;
   const strategyConfigRef = useRef(strategyConfig);
 
   useEffect(() => {
@@ -838,18 +843,16 @@ export const TradingViewChart: React.FC<TradingViewChartProps> = memo(({
         const matchesChain = o.chainId === curChain;
         return matchesTok && matchesChain;
       });
-      return activeOrders.find((o) => {
-        const orderPrice = o.limitPrice || o.triggerPrice;
-        if (!orderPrice) return false;
+      let nearest: TradeOrder | undefined, nearestDistance = Infinity;
+      for (const o of activeOrders) {
+        const orderPrice = orderLimitPriceUsd(o, nativePriceSnapshotRef.current);
+        if (!orderPrice) continue;
         const orderY = seriesRef.current?.priceToCoordinate(orderPrice);
-        if (orderY !== null && orderY !== undefined) {
-          return Math.abs(orderY - y) <= 18;
-        }
-        if (clickedPrice !== null && clickedPrice > 0) {
-          return Math.abs(clickedPrice - orderPrice) / orderPrice <= 0.006;
-        }
-        return false;
-      });
+        const distance = orderY !== null && orderY !== undefined ? Math.abs(orderY - y) / 18
+          : clickedPrice !== null && clickedPrice > 0 ? Math.abs(clickedPrice - orderPrice) / orderPrice / 0.006 : Infinity;
+        if (distance <= 1 && distance < nearestDistance) { nearest = o; nearestDistance = distance; }
+      }
+      return nearest;
     };
 
     // Chart Left-Click: cancel order if clicked on line
@@ -1132,12 +1135,13 @@ export const TradingViewChart: React.FC<TradingViewChartProps> = memo(({
     });
 
     activeOrders.forEach((order) => {
-      const targetPrice = order.limitPrice || order.triggerPrice;
+      const targetPrice = orderLimitPriceUsd(order, nativePriceSnapshot);
+      const category = displayOrderCategory(order, orders);
       const tag = order.externalOrderId || order.ocoGroupId || order.id;
       const ocoTag = tag ? ` [${shortChartId(tag)}]` : '';
 
       if (targetPrice && targetPrice > 0) {
-        if (order.orderCategory === 'take_profit') {
+        if (category === 'take_profit') {
           const line = createOrderLine({
             price: targetPrice,
             color: '#10b981',
@@ -1147,7 +1151,7 @@ export const TradingViewChart: React.FC<TradingViewChartProps> = memo(({
             title: `TP${ocoTag} @ $${getPricePrecision(targetPrice).format(targetPrice)} (${order.sellSymbol || 'TOK'})`,
           });
           newLines.push(line);
-        } else if (order.orderCategory === 'stop_loss') {
+        } else if (category === 'stop_loss') {
           const line = createOrderLine({
             price: targetPrice,
             color: '#ef4444',
@@ -1157,7 +1161,7 @@ export const TradingViewChart: React.FC<TradingViewChartProps> = memo(({
             title: `SL${ocoTag} @ $${getPricePrecision(targetPrice).format(targetPrice)} (${order.sellSymbol || 'TOK'})`,
           });
           newLines.push(line);
-        } else if (order.orderCategory === 'limit_sell' || (!order.orderCategory && order.type === 'BNB_TO_USDT')) {
+        } else if (category === 'limit_sell' || (!order.orderCategory && order.type === 'BNB_TO_USDT')) {
           const line = createOrderLine({
             price: targetPrice,
             color: '#ef4444',
@@ -1214,7 +1218,7 @@ export const TradingViewChart: React.FC<TradingViewChartProps> = memo(({
 
     priceLinesRef.current = newLines;
     orderLabelsRef.current?.setLabels(labels);
-  }, [orders, token.address, chainId]);
+  }, [orders, token.address, chainId, nativePriceSnapshot, isLoading]);
 
   // Unified Markers Plugin - STRICT TOKEN AND CHAIN ISOLATION (ZERO FALLBACKS)
   useEffect(() => {
@@ -1267,7 +1271,7 @@ export const TradingViewChart: React.FC<TradingViewChartProps> = memo(({
     const capture = (): ChartCapture => {
       if (!chartRef.current || !rawCandlesRef.current.length) throw new Error('Chart is not ready');
       const canvas = chartRef.current.takeScreenshot(true, false);
-      return { image: canvas.toDataURL('image/png'), capturedAt: Date.now(), interval,
+      return { image: canvas.toDataURL('image/png'), capturedAt: Date.now(), interval, nativePriceSnapshot,
         lastCandle: { ...rawCandlesRef.current[rawCandlesRef.current.length - 1] },
         orders: ordersRef.current.slice(), width: canvas.width, height: canvas.height };
     };
@@ -1276,7 +1280,7 @@ export const TradingViewChart: React.FC<TradingViewChartProps> = memo(({
     let second = 0;
     const first = requestAnimationFrame(() => { second = requestAnimationFrame(() => onCaptureReady?.(capture)); });
     return () => { unregister?.(); cancelAnimationFrame(first); cancelAnimationFrame(second); };
-  }, [viewKey, interval, hasHistory, isLoading, errorMessage, snapshotOnly, onCaptureReady, onCaptureError]);
+  }, [viewKey, interval, hasHistory, isLoading, errorMessage, snapshotOnly, onCaptureReady, onCaptureError, nativePriceSnapshot]);
 
   const chainConf = getChainConfig(chainId);
 
@@ -1546,10 +1550,11 @@ export const TradingViewChart: React.FC<TradingViewChartProps> = memo(({
                 o.chainId === chainId
               )
               .map((order) => {
-                const targetPrice = order.limitPrice || order.triggerPrice || 0;
-                const isTp = order.orderCategory === 'take_profit';
-                const isSl = order.orderCategory === 'stop_loss';
-                const isSell = isTp || isSl || order.orderCategory === 'limit_sell' || order.type === 'BNB_TO_USDT';
+                const targetPrice = orderLimitPriceUsd(order, nativePriceSnapshot);
+                const category = displayOrderCategory(order, orders);
+                const isTp = category === 'take_profit';
+                const isSl = category === 'stop_loss';
+                const isSell = isTp || isSl || category === 'limit_sell' || order.type === 'BNB_TO_USDT';
                 const isBuy = order.orderCategory === 'limit' || order.orderCategory === 'strategy_buy' || order.type === 'USDT_TO_BNB';
                 const tag = order.externalOrderId || order.ocoGroupId || order.id;
                 const ocoTag = tag ? `[${shortChartId(tag)}]` : '';
@@ -1567,7 +1572,7 @@ export const TradingViewChart: React.FC<TradingViewChartProps> = memo(({
                   >
                     <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isBuy || isTp ? 'bg-emerald-400 animate-pulse' : 'bg-rose-400 animate-pulse'}`} />
                     <span className="font-semibold text-white">
-                      {titleLabel} ${getPricePrecision(targetPrice).format(targetPrice)}
+                      {titleLabel} {targetPrice === undefined ? 'USD unavailable' : `$${getPricePrecision(targetPrice).format(targetPrice)}`}
                     </span>
                     <span className="text-[9px] text-rose-400 group-hover:text-rose-200 font-bold ml-0.5">
                       ✕

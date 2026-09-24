@@ -6,6 +6,7 @@ import type { WalletState } from '../types/trading';
 import { nativeStore } from '../services/nativeStore';
 import { storageService } from '../services/storageService';
 import { placeOrder, reservedAmount } from '../services/orderPlacement';
+import { executionEngine } from '../services/executionEngine';
 import { web3Service } from '../services/web3Service';
 import { assertTradingPair } from '../services/tradingQuote';
 import { systemLogService } from '../services/systemLogService';
@@ -68,7 +69,7 @@ async function cycle(key: string, run: Run) {
     const history = storageService.getAccountingOrders(orders);
     const packet = { workspace: run.workspace, chart: chartInfo, balances, settings: run.settings,
       tradingAllowance: tradingAllowance(history, run.workspace, run.settings.maxFundsUsd),
-      ...tradePacket(history, run.workspace, run.settings.historyCount) };
+      ...tradePacket(history, run.workspace, run.settings.historyCount, chart.nativePriceSnapshot) };
     update(key, run, { message: 'Waiting for model' });
     const response = await invoke<string>('automation_decide', { model: run.settings.model,
       instructions: `${run.settings.prompt}\n\nResponse format:\n${RESPONSE_FORMAT}`, packet, image });
@@ -78,7 +79,26 @@ async function cycle(key: string, run: Run) {
     saveLatestResponse(key, latestResponse);
     const decision = parseDecision(response);
     const cycleId = crypto.randomUUID();
-    let placed = 0;
+    // Only orders actually supplied to this decision may be cancelled. Re-read the
+    // main store before each action; the chart packet is not an execution ledger.
+    const suppliedIds = new Set(packet.openOrders.map(order => order.id));
+    for (const id of decision.cancelOrderIds) {
+      if (!suppliedIds.has(id)) throw new Error('Cancellation must reference an open order from this workspace packet');
+    }
+    let cancelled = 0, placed = 0;
+    for (const id of decision.cancelOrderIds) {
+      check(run);
+      const order = workspaceOrders(storageService.getOrders(), run.workspace).find(order => order.id === id);
+      if (!order) throw new Error('Order to cancel is no longer available in this workspace');
+      if (order.status === 'fulfilled') throw new Error('Order filled before cancellation; reassessing on the next check');
+      // Cancelling one OCO leg may already have cancelled another requested leg.
+      if (order.status === 'cancelled' || order.status === 'expired') continue;
+      update(key, run, { message: 'Cancelling order' });
+      await executionEngine.cancel(id, run.wallet, () => check(run));
+      cancelled++;
+      systemLogService.logInfo('STRATEGY', `Automation cancelled order: ${run.workspace.token.symbol}`, `Order: ${id}`, run.workspace.chainId);
+      check(run);
+    }
     for (const [index, proposed] of decision.orders.entries()) {
       checkTrade(run, proposed.side);
       const command = proposed.side === 'buy' && run.settings.amountMode === 'fixed'
@@ -93,7 +113,7 @@ async function cycle(key: string, run: Run) {
       placed++;
     }
     run.lastError = undefined;
-    update(key, run, { checkedAt: Date.now(), message: `${placed ? `${placed} order${placed === 1 ? '' : 's'} placed. ` : ''}${decision.reason || 'No order requested'}` });
+    update(key, run, { checkedAt: Date.now(), message: `${cancelled ? `${cancelled} cancellation${cancelled === 1 ? '' : 's'} completed. ` : ''}${placed ? `${placed} order${placed === 1 ? '' : 's'} placed. ` : ''}${decision.reason || 'No action requested'}` });
     // Input packet and image die with this call. The single displayed response is replaced next cycle.
   } catch (error) {
     if (!run.abort.signal.aborted) {

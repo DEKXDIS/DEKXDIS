@@ -137,7 +137,7 @@ export async function placeOrder(context: PlacementContext, input: OrderCommand)
       if (limit === undefined) {
         check(); store.addOrders(orders); recordAllocatedOcoTag(tag); await store.flush(); return orders;
       }
-      submitted = { ...base, limitPrice: limit, orderCategory: 'take_profit',
+      submitted = { ...base, limitPrice: limit, orderCategory: stopPrice !== undefined ? 'take_profit' : 'limit_sell',
         buyAmount: quoteForQuantityUsd(quantity, limit, rate, token.decimals, quote.decimals), connectedOrderId: orders[0]?.id };
     }
     const signer = web3Service.getSigner(wallet.address, chainId);
