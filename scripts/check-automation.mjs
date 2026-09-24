@@ -24,7 +24,7 @@ const token = { address: '0x2222222222222222222222222222222222222222', chainId: 
 const quote = { address: '0x3333333333333333333333333333333333333333', decimals: 18, symbol: 'WETH' };
 const w = { owner, token, chainId: 1 };
 const wallet = { address: owner };
-let orders = [], submitted = 0, nextId = 0, writes = 0, currentWallet = wallet, failPost = false;
+let orders = [], submitted = 0, nextId = 0, writes = 0, currentWallet = wallet, failPost = false, quoteBalance = 1000000000000000000n;
 let serial = Promise.resolve();
 const base = { id: 'b1', ownerAddress: owner, chainId: 1, timestamp: 1, status: 'pending', tradeSide: 'buy',
   sellToken: quote.address, buyToken: token.address, sellAmount: '0.01', buyAmount: '10', sellDecimals: 18, buyDecimals: 6 };
@@ -47,6 +47,28 @@ for (const extras of [{}, { takeProfitPrice: 3 }, { stopLossPrice: 1 }, { takePr
 }
 assert.throws(() => packet.parseDecision('{"reason":"x","orders":[{"side":"buy","price":-1,"amount":"2","amountUnit":"usd"}]}'));
 assert.throws(() => packet.parseDecision('{"reason":"x","orders":[],"cancel":["b1"]}'));
+const paidEntry = buy({ status: 'fulfilled', executedSellAmount: '0.03', executedBuyAmount: '30', executedQuoteUsdPrice: 2000, timestamp: 2 });
+const secondEntry = buy({ id: 'b2', status: 'fulfilled', executedSellAmount: '0.02', executedBuyAmount: '10', executedQuoteUsdPrice: 2000, timestamp: 3 });
+assert.equal(packet.describeOrder(paidEntry).averageFillPriceUsd, 2);
+assert.equal(packet.describeOrder(paidEntry).averageFillPriceQuote, 0.001);
+assert.equal(packet.describeOrder(buy()).averageFillPriceUsd, null, 'requested price is not presented as a fill');
+assert.equal(packet.tradePacket([paidEntry, secondEntry], w, 5).positionSummary.averageEntryPriceUsd, 2.5);
+const partialExit = sell({ status: 'fulfilled', parentOrderId: 'b1', executedSellAmount: '20', timestamp: 4 });
+assert.equal(packet.tradePacket([paidEntry, secondEntry, partialExit], w, 5).positionSummary.averageEntryPriceUsd, 3, 'average weights only unsold quantities');
+const budget = await load('src/automation/allowance.ts');
+const pendingBuy = buy({ id: 'pending', sellAmount: '0.005', quoteUsdPrice: 2000, timestamp: 4 });
+const paidExit = sell({ status: 'fulfilled', executedSellAmount: '15', executedBuyAmount: '0.02', executedQuoteUsdPrice: 2000, timestamp: 3 });
+let room = budget.tradingAllowance([paidEntry, paidExit, pendingBuy, tp], w, '100');
+assert.equal(room.usedUsd, '20.0'); assert.equal(room.reservedUsd, '10.0'); assert.equal(room.availableUsd, '70.0');
+assert.equal(budget.tradingAllowance([paidEntry, tp], w, '100').availableUsd, '40.0', 'waiting TP gives no spendable credit');
+assert.equal(budget.tradingAllowance([pendingBuy], w, '100').availableUsd, '90.0');
+assert.equal(budget.tradingAllowance([{ ...pendingBuy, status: 'cancelled' }], w, '100').availableUsd, '100.0');
+assert.equal(budget.tradingAllowance([{ ...paidEntry, chainId: 56 }, { ...pendingBuy, ownerAddress: quote.address }], w, '100').availableUsd, '100.0', 'other workspaces do not consume allowance');
+assert.equal(budget.tradingAllowance([paidEntry, { ...paidExit, executedBuyAmount: '0.05' }], w, '100').availableUsd, '100.0', 'profits do not expand the ceiling');
+assert.equal(budget.tradingAllowance([paidEntry, { ...paidExit, executedBuyAmount: '0.05' }, { ...secondEntry, timestamp: 4 }], w, '100').availableUsd, '60.0', 'past profits cannot subsidize later buys beyond the ceiling');
+assert.equal(budget.tradingAllowance([], w, '0').availableUsd, '0.0');
+assert.equal(budget.tradingAllowance([], w, '').limitUsd, null);
+assert(budget.tradingAllowance([{ ...paidEntry, executedQuoteUsdPrice: undefined }], w, '100').error, 'unknown purchase cost is not zero');
 
 const native = { getWallet: () => currentWallet, isHealthy: () => true, subscribe: () => () => {} };
 const storage = { getOrders: () => orders, getAccountingOrders: current => current || orders,
@@ -55,8 +77,8 @@ const placement = await load('src/services/orderPlacement.ts', {
   nativeStore: { nativeStore: native }, storageService: { storageService: storage },
   executionEngine: { exclusive: fn => { const work = serial.then(fn); serial = work.catch(() => {}); return work; } },
   tradingQuote: { assertTradingPair: () => {}, tradingQuoteUsdPrice: async () => 2000 },
-  chains: { getTradingQuoteToken: () => quote },
-  web3Service: { web3Service: { getTokenBalanceWei: async (_owner, address) => address === quote.address ? 1000000000000000000n : 1000000000n,
+  chains: { getTradingQuoteToken: () => quote, getChainConfig: () => ({ nativeToken: { wrappedAddress: quote.address }, usdtToken: { address: quote.address } }) },
+  web3Service: { web3Service: { getTokenBalanceWei: async (_owner, address) => address === quote.address ? quoteBalance : 1000000000n,
     ensureAllowance: async () => {}, getSigner: () => ({ address: owner }) } },
   cowProtocol: { cowProtocol: { getExplorerUrl: id => `test:${id}`, submitLimitOrder: async params => {
     await params.onPrepared(`uid-${++nextId}`); assert(writes > 0, 'local order saved before posting'); submitted++;
@@ -87,6 +109,14 @@ await placement.placeOrder({ wallet, token, chainId: 1 }, { side: 'sell', price:
 assert.equal(orders.length, 2); assert.equal(orders[0].connectedOrderId, orders[1].id); assert.equal(orders[1].connectedOrderId, orders[0].id);
 currentWallet = { address: quote.address };
 await assert.rejects(placement.placeOrder({ wallet, token, chainId: 1 }, command), /wallet/); currentWallet = wallet;
+orders = [];
+const limited = { wallet, token, chainId: 1, checkBuyAmount: (amount, decimals, rate) => budget.assertBuyAllowance(orders, w, '15', amount, decimals, rate) };
+const batch = await Promise.allSettled([placement.placeOrder(limited, command), placement.placeOrder(limited, command)]);
+assert.equal(batch.filter(r => r.status === 'fulfilled').length, 1, 'concurrent buys cannot consume the same allowance');
+assert.equal(orders.length, 1);
+orders = []; quoteBalance = 0n;
+await assert.rejects(placement.placeOrder(limited, command), /Insufficient unreserved/, 'allowance does not manufacture wallet funds');
+quoteBalance = 1000000000000000000n;
 
 const local = new Map(); globalThis.localStorage = { getItem: key => local.get(key) ?? null, setItem: (key, value) => local.set(key, value),
   removeItem: key => local.delete(key), key: index => [...local.keys()][index], get length() { return local.size; } };
@@ -110,7 +140,7 @@ let reply, modelCalls = 0, placed = 0;
 const pendingModel = () => new Promise(resolve => { reply = resolve; modelCalls++; });
 const runner = (await load('src/automation/runner.ts', {
   '@tauri-apps/api/core': { invoke: pendingModel }, nativeStore: { nativeStore: native }, storageService: { storageService: storage },
-  releaseFeatures: { getStrategiesEnabled: () => true }, chains: { getTradingQuoteToken: () => quote },
+  releaseFeatures: { getStrategiesEnabled: () => true }, chains: { getTradingQuoteToken: () => quote, getChainConfig: () => ({ nativeToken: { wrappedAddress: quote.address }, usdtToken: { address: quote.address } }) },
   tradingQuote: { assertTradingPair: () => {} },
   web3Service: { web3Service: { getTokenBalanceWei: async () => 100000000000000000000n } },
   systemLogService: { systemLogService: { logWarning: () => {} } },
@@ -121,7 +151,12 @@ const runner = (await load('src/automation/runner.ts', {
   } },
 })).automation;
 const settings = { prompt: 'my instructions', model: 'test', intervalSeconds: 60, tradeIntervalSeconds: 0, maxOpenBuys: 1,
-  amountMode: 'fixed', amount: '7', amountUnit: 'usd', historyCount: 2 };
+  amountMode: 'fixed', amount: '7', amountUnit: 'usd', historyCount: 2, maxFundsUsd: '' };
+const form = await load('src/automation/settings.ts');
+const draft = form.settingsDraft(settings); draft.intervalSeconds = '';
+assert.throws(() => form.parseSettingsDraft(draft), /Check interval/, 'empty required input is not silently converted to zero');
+draft.intervalSeconds = '30'; draft.tradeIntervalSeconds = '0';
+assert.equal(form.parseSettingsDraft(draft).intervalSeconds, 30); assert.equal(form.parseSettingsDraft(draft).tradeIntervalSeconds, 0);
 const key = `${owner}:1:${token.address}`;
 const settle = async predicate => { for (let i = 0; i < 100; i++) { if (predicate()) return; await new Promise(resolve => setImmediate(resolve)); } throw new Error('Test did not settle'); };
 orders = []; runner.start(w, settings); await settle(() => modelCalls === 1);
@@ -130,9 +165,15 @@ assert.equal(placed, 0, 'stopped model reply cannot place an order');
 orders = [filled, tp]; runner.start(w, settings); await settle(() => modelCalls === 2);
 reply(JSON.stringify({ reason: 'buy twice', orders: [command, command] })); await settle(() => !runner.status(key).busy);
 assert.equal(placed, 1, 'filled buy frees slot; second command checks the newly placed buy');
+const previousResponse = runner.status(key).lastResponse;
+assert(previousResponse.includes('buy twice'), 'placement errors do not overwrite the response');
 runner.stopAll();
 const priorWrites = writes; orders = [];
-runner.start(w, settings); await settle(() => modelCalls === 3); reply('{"reason":"wait","orders":[]}'); await settle(() => !runner.status(key).busy);
-assert.equal(writes, priorWrites, 'no-trade cycle does not persist a packet, response or run'); runner.stopAll();
-assert.equal(local.size, 0, 'runner never stores model packets or transcripts');
-console.log('PASS: counts, positions, response validation, optional TP/SL, shared placement, OCO reservation, uncertain submission, wallet isolation, cleanup, durable flush, stop during inference, live limits, disposable cycles.');
+runner.start(w, settings); await settle(() => modelCalls === 3);
+assert.equal(runner.status(key).lastResponse, previousResponse, 'old reply stays visible during next request');
+reply('{"reason":"wait","orders":[]}'); await settle(() => !runner.status(key).busy);
+assert.equal(writes, priorWrites, 'no-trade cycle never writes the main store'); runner.stopAll();
+assert.equal(local.size, 1, 'only the latest text response is retained, not packets or a transcript');
+const replies = await load('src/automation/latestResponse.ts');
+assert.equal(replies.readLatestResponse(key).lastResponse, '{"reason":"wait","orders":[]}', 'latest reply survives remount/restart');
+console.log('PASS: order counts, optional protections, shared placement, stop/recovery, wallet isolation, allowance reservations/fills/sales/concurrency, actual and average entry prices, editable numeric drafts, latest-response retention, disposable input packets.');

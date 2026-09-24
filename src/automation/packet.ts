@@ -2,6 +2,8 @@ import { ethers } from 'ethers';
 import type { TradeOrder } from '../types/trading';
 import type { Workspace } from './settings';
 import type { OrderCommand } from '../services/orderPlacement';
+import { historyTokenSide } from '../utils/orderHistory';
+import { getTradingQuoteToken } from '../types/chains';
 
 export const RESPONSE_FORMAT = `Return only JSON: {"reason":"brief explanation", "orders":[{"side":"buy", "price":1.23, "amount":"10", "amountUnit":"usd", "takeProfitPrice":1.4, "stopLossPrice":1.1}]}.
 An empty orders array means wait. Each order is for the supplied workspace token. side is buy or sell. price, takeProfitPrice and stopLossPrice are positive USD display prices. amount is a positive decimal string, amountUnit is usd or token. A USD amount is converted to the actual trading assets by the application. TP and SL are individually optional; omit either when unwanted. Buy protections are activated by the application after a confirmed fill. A sell is a limit sell by default; use sellKind:"stop" for a conditional stop sell. For a limit sell, stopLossPrice adds its OCO stop; for a stop sell, takeProfitPrice adds its OCO limit. Do not set takeProfitPrice on a limit sell or stopLossPrice on a stop sell: price already specifies that leg. In fixed amount mode, the application uses the user's amount and unit for every order. Follow the user's instructions and supplied settings. No other response fields or actions are supported.`;
@@ -14,8 +16,18 @@ export const working = (o: TradeOrder) => o.status === 'open' || o.status === 'p
 export const openBuyCount = (orders: TradeOrder[], w: Workspace) => workspaceOrders(orders, w)
   .filter(o => working(o) && o.buyToken.toLowerCase() === w.token.address.toLowerCase()).length;
 export function describeOrder(o: TradeOrder) {
-  return { id: o.id, side: o.tradeSide, status: o.status, category: o.orderCategory, createdAt: o.timestamp,
-    priceUsd: o.limitPrice, sellToken: o.sellToken, buyToken: o.buyToken, sellAmount: o.sellAmount, buyAmount: o.buyAmount,
+  const side = historyTokenSide(o), sold = Number(o.executedSellAmount), received = Number(o.executedBuyAmount);
+  const averageFillPriceQuote = sold > 0 && received > 0 && Number.isFinite(sold) && Number.isFinite(received)
+    ? side === 'buy' ? sold / received : received / sold : null;
+  const fillRate = Number(o.executedQuoteUsdPrice);
+  const averageFillPriceUsd = averageFillPriceQuote !== null && Number.isFinite(fillRate) && fillRate > 0 ? averageFillPriceQuote * fillRate : null;
+  return { id: o.id, side, status: o.status, category: o.orderCategory, createdAt: o.timestamp,
+    limitPriceUsd: o.limitPrice, averageFillPriceQuote, averageFillPriceUsd,
+    quoteToken: side === 'buy' ? o.sellToken : o.buyToken, quoteSymbol: side === 'buy' ? o.sellSymbol : o.buySymbol,
+    fillQuoteUsdConversion: Number.isFinite(fillRate) && fillRate > 0 ? fillRate : null,
+    fillQuoteUsdConversionObservedAt: o.executedQuotePriceTimestamp ?? null,
+    filledAt: o.settlementTimestamp || o.fillTimestamp || null,
+    sellToken: o.sellToken, buyToken: o.buyToken, sellAmount: o.sellAmount, buyAmount: o.buyAmount,
     executedBuyAmount: o.executedBuyAmount ?? null, executedSellAmount: o.executedSellAmount ?? null,
     parentOrderId: o.parentOrderId, ocoGroupId: o.ocoGroupId, conditional: !!o.isConditional,
     takeProfitPrice: o.bracket?.tpEnabled ? o.bracket.tpPrice : undefined,
@@ -48,13 +60,28 @@ export function tradePacket(orders: TradeOrder[], w: Workspace, historyCount: nu
       if (position.remaining === 0n) next++;
     }
   }
-  const describePosition = (p: typeof positions[number]) => ({ entry: describeOrder(p.order),
-    remainingTokenAmount: ethers.formatUnits(p.remaining > 0n ? p.remaining : 0n, w.token.decimals) });
+  const describePosition = (p: typeof positions[number]) => {
+    const entry = describeOrder(p.order), amount = ethers.formatUnits(p.remaining > 0n ? p.remaining : 0n, w.token.decimals);
+    return { entry, remainingTokenAmount: amount,
+      remainingCostUsd: entry.averageFillPriceUsd === null ? null : Number(amount) * entry.averageFillPriceUsd,
+      remainingCostQuote: entry.averageFillPriceQuote === null ? null : Number(amount) * entry.averageFillPriceQuote };
+  };
+  const openPositions = positions.filter(p => p.remaining > 0n).map(describePosition);
+  const remainingTokenAmount = ethers.formatUnits(positions.reduce((sum, p) => sum + (p.remaining > 0n ? p.remaining : 0n), 0n), w.token.decimals);
+  const quote = getTradingQuoteToken(w.chainId);
+  const costBasisUsd = openPositions.length && openPositions.every(p => p.remainingCostUsd !== null)
+    ? openPositions.reduce((sum, p) => sum + p.remainingCostUsd!, 0) : null;
+  const costBasisQuote = openPositions.length && openPositions.every(p => p.remainingCostQuote !== null && p.entry.quoteToken.toLowerCase() === quote.address.toLowerCase())
+    ? openPositions.reduce((sum, p) => sum + p.remainingCostQuote!, 0) : null;
   return { openBuyCount: openBuyCount(all, w), openOrders: all.filter(working).map(describeOrder),
-    openPositions: positions.filter(p => p.remaining > 0n).map(describePosition),
+    openPositions, positionSummary: { remainingTokenAmount, costBasisUsd, costBasisQuote,
+      averageEntryPriceUsd: costBasisUsd === null ? null : costBasisUsd / Number(remainingTokenAmount),
+      averageEntryPriceQuote: costBasisQuote === null ? null : costBasisQuote / Number(remainingTokenAmount),
+      quoteToken: quote.address, quoteSymbol: quote.symbol },
     recentClosedPositions: historyCount ? positions.filter(p => p.remaining <= 0n).slice(-historyCount).map(describePosition) : [],
     recentOrders: historyCount ? all.filter(o => !working(o)).slice(-historyCount).map(describeOrder) : [],
-    positionAttribution: 'Confirmed local fills; linked exits first, unlinked sells FIFO. Transfers are reflected only in wallet balances.' };
+    positionAttribution: 'Confirmed local fills; linked exits first, unlinked sells FIFO. Transfers are reflected only in wallet balances.',
+    priceBasis: 'Limit prices are requested prices. Average fill prices use executed amounts. USD fill values use the conversion observed during reconciliation, not an exact settlement-time oracle. Null means unavailable. Position averages weight only the remaining quantities.' };
 }
 
 export function parseDecision(text: string): { reason: string; orders: OrderCommand[] } {

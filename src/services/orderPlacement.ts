@@ -20,6 +20,7 @@ export interface PlacementContext {
   wallet: WalletState; token: TokenConfig; chainId: number; candleTime?: number;
   requestId?: string; // Automation correlation, stored only on actual orders.
   checkCurrent?: () => void;
+  checkBuyAmount?: (amountWei: bigint, quoteDecimals: number, quoteUsdPrice: number) => void;
 }
 export const isWorkingOrder = (order: TradeOrder) => order.status === 'pending' || order.status === 'open';
 
@@ -46,11 +47,13 @@ export function reservedAmount(orders: TradeOrder[], owner: string, chainId: num
 export async function placeOrder(context: PlacementContext, input: OrderCommand): Promise<TradeOrder[]> {
   const command = { ...input }, token = { ...context.token }, wallet = { ...context.wallet };
   const { chainId } = context;
+  let buySpend: { amount: bigint; decimals: number; rate: number } | undefined;
   const check = () => {
     if (!nativeStore.isHealthy() || nativeStore.getWallet()?.address.toLowerCase() !== wallet.address.toLowerCase() || wallet.needsBackup) {
       throw new Error('Active wallet is unavailable or needs its backup');
     }
     context.checkCurrent?.();
+    if (buySpend) context.checkBuyAmount?.(buySpend.amount, buySpend.decimals, buySpend.rate);
   };
   check();
   assertTradingPair(token.address, chainId);
@@ -78,6 +81,8 @@ export async function placeOrder(context: PlacementContext, input: OrderCommand)
     if (tokenWei <= 0n || quoteWei <= 0n) throw new Error('Order amount is below token precision');
     const buying = command.side === 'buy', asset = buying ? quote : token;
     const spend = buying ? quoteWei : tokenWei;
+    if (buying) buySpend = { amount: spend, decimals: quote.decimals, rate };
+    check();
     const balance = await web3Service.getTokenBalanceWei(wallet.address, asset.address, chainId);
     check();
     if (spend + reservedAmount(store.getOrders(), wallet.address, chainId, asset.address, asset.decimals) > balance) throw new Error(`Insufficient unreserved ${asset.symbol} balance`);

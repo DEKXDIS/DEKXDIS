@@ -12,9 +12,11 @@ import { systemLogService } from '../services/systemLogService';
 import { captureWorkspace } from './chartCapture';
 import { openBuyCount, parseDecision, RESPONSE_FORMAT, tradePacket, workspaceOrders } from './packet';
 import { workspaceKey, validateSettings, type Workspace, type AutomationSettings } from './settings';
+import { assertBuyAllowance, tradingAllowance } from './allowance';
+import { readLatestResponse, saveLatestResponse, type LatestResponse } from './latestResponse';
 
 export interface ActiveWorkspace extends Workspace { tokenAddress: string; running: boolean }
-export interface RunStatus { running: boolean; busy: boolean; message: string; checkedAt?: number; nextAt?: number }
+export interface RunStatus extends LatestResponse { running: boolean; busy: boolean; message: string; checkedAt?: number; nextAt?: number }
 type Run = { workspace: Workspace; wallet: WalletState; settings: AutomationSettings; abort: AbortController;
   status: RunStatus; timer?: ReturnType<typeof setTimeout>; lastError?: string };
 const runs = new Map<string, Run>();
@@ -22,6 +24,7 @@ const listeners = new Map<string, Set<() => void>>();
 const activeListeners = new Set<() => void>();
 let active: ActiveWorkspace[] = [];
 const stopped: RunStatus = { running: false, busy: false, message: 'Stopped' };
+const idleStatuses = new Map<string, RunStatus>();
 function publishActive() {
   active = [...runs.values()].filter(r => r.status.running).map(r => ({ ...r.workspace, tokenAddress: r.workspace.token.address, running: true }));
   activeListeners.forEach(fn => fn());
@@ -62,12 +65,17 @@ async function cycle(key: string, run: Run) {
     }));
     check(run);
     const { image, orders, ...chartInfo } = chart;
+    const history = storageService.getAccountingOrders(orders);
     const packet = { workspace: run.workspace, chart: chartInfo, balances, settings: run.settings,
-      ...tradePacket(storageService.getAccountingOrders(orders), run.workspace, run.settings.historyCount) };
+      tradingAllowance: tradingAllowance(history, run.workspace, run.settings.maxFundsUsd),
+      ...tradePacket(history, run.workspace, run.settings.historyCount) };
     update(key, run, { message: 'Waiting for model' });
     const response = await invoke<string>('automation_decide', { model: run.settings.model,
       instructions: `${run.settings.prompt}\n\nResponse format:\n${RESPONSE_FORMAT}`, packet, image });
     check(run);
+    const latestResponse = { lastResponse: response, respondedAt: Date.now() };
+    update(key, run, latestResponse);
+    saveLatestResponse(key, latestResponse);
     const decision = parseDecision(response);
     const cycleId = crypto.randomUUID();
     let placed = 0;
@@ -77,12 +85,16 @@ async function cycle(key: string, run: Run) {
         ? { ...proposed, amount: run.settings.amount, amountUnit: run.settings.amountUnit } : proposed;
       update(key, run, { message: `Placing ${command.side} order` });
       await placeOrder({ wallet: run.wallet, token: run.workspace.token, chainId: run.workspace.chainId,
-        requestId: `${cycleId}:${index}`, checkCurrent: () => checkTrade(run, command.side) }, command);
+        requestId: `${cycleId}:${index}`, checkCurrent: () => checkTrade(run, command.side),
+        checkBuyAmount: (amount, decimals, rate) => {
+          check(run);
+          assertBuyAllowance(storageService.getAccountingOrders(), run.workspace, run.settings.maxFundsUsd, amount, decimals, rate);
+        } }, command);
       placed++;
     }
     run.lastError = undefined;
     update(key, run, { checkedAt: Date.now(), message: `${placed ? `${placed} order${placed === 1 ? '' : 's'} placed. ` : ''}${decision.reason || 'No order requested'}` });
-    // chart, packet, image and full response die with this call. Only the short status remains.
+    // Input packet and image die with this call. The single displayed response is replaced next cycle.
   } catch (error) {
     if (!run.abort.signal.aborted) {
       const message = error instanceof Error ? error.message : String(error);
@@ -101,7 +113,11 @@ async function cycle(key: string, run: Run) {
 export const automation = {
   activeWorkspaces: () => active,
   subscribe(listener: () => void) { activeListeners.add(listener); return () => { activeListeners.delete(listener); }; },
-  status: (key: string) => runs.get(key)?.status || stopped,
+  status: (key: string) => {
+    if (runs.has(key)) return runs.get(key)!.status;
+    if (!idleStatuses.has(key)) idleStatuses.set(key, { ...stopped, ...readLatestResponse(key) });
+    return idleStatuses.get(key)!;
+  },
   subscribeWorkspace(key: string, listener: () => void) {
     if (!listeners.has(key)) listeners.set(key, new Set());
     listeners.get(key)!.add(listener);
@@ -116,7 +132,7 @@ export const automation = {
     const wallet = nativeStore.getWallet();
     if (!wallet || wallet.needsBackup) throw new Error('Select and back up your wallet first');
     const run: Run = { workspace: { ...workspace, token: { ...workspace.token } }, wallet: { ...wallet }, settings: { ...settings },
-      abort: new AbortController(), status: { running: true, busy: false, message: 'Starting' } };
+      abort: new AbortController(), status: { ...this.status(key), running: true, busy: false, nextAt: undefined, message: 'Starting' } };
     check(run); runs.set(key, run); publishActive(); void cycle(key, run);
   },
   stop(key: string) {

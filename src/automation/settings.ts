@@ -4,10 +4,11 @@ export const workspaceKey = (owner: string, chain: number, token: string) => `${
 export interface AutomationSettings {
   prompt: string; model: string; intervalSeconds: number; tradeIntervalSeconds: number;
   maxOpenBuys: number; amountMode: 'fixed' | 'model'; amount: string; amountUnit: 'usd' | 'token'; historyCount: number;
+  maxFundsUsd: string;
 }
 export const defaultSettings: AutomationSettings = {
   prompt: '', model: '', intervalSeconds: 60, tradeIntervalSeconds: 0,
-  maxOpenBuys: 4, amountMode: 'fixed', amount: '10', amountUnit: 'usd', historyCount: 20,
+  maxOpenBuys: 4, amountMode: 'fixed', amount: '10', amountUnit: 'usd', historyCount: 20, maxFundsUsd: '',
 };
 const prefix = 'dekxdis_automation_settings_v1:';
 export function readSettings(key: string): AutomationSettings {
@@ -22,6 +23,20 @@ export function validateSettings(s: AutomationSettings) {
   }
   if (!['fixed', 'model'].includes(s.amountMode) || !['usd', 'token'].includes(s.amountUnit)) throw new Error('Invalid amount setting');
   if (s.amountMode === 'fixed' && (!/^\d+(\.\d+)?$/.test(s.amount) || !Number.isFinite(Number(s.amount)) || Number(s.amount) <= 0)) throw new Error('Enter a positive order amount');
+  if (s.maxFundsUsd.trim() && (!/^\d+(\.\d{1,18})?$/.test(s.maxFundsUsd.trim()) || !Number.isFinite(Number(s.maxFundsUsd)))) throw new Error('Trading allowance must be a non-negative USD amount or blank for unlimited');
+}
+type NumericSetting = 'intervalSeconds' | 'tradeIntervalSeconds' | 'maxOpenBuys' | 'historyCount';
+const numericSettings: NumericSetting[] = ['intervalSeconds', 'tradeIntervalSeconds', 'maxOpenBuys', 'historyCount'];
+export type SettingsDraft = Omit<AutomationSettings, NumericSetting> & Record<NumericSetting, string>;
+export function settingsDraft(settings: AutomationSettings): SettingsDraft {
+  return { ...settings, intervalSeconds: String(settings.intervalSeconds), tradeIntervalSeconds: String(settings.tradeIntervalSeconds),
+    maxOpenBuys: String(settings.maxOpenBuys), historyCount: String(settings.historyCount) };
+}
+export function parseSettingsDraft(draft: SettingsDraft): AutomationSettings {
+  const settings = { ...draft, maxFundsUsd: draft.maxFundsUsd.trim() } as unknown as AutomationSettings;
+  for (const name of numericSettings) settings[name] = draft[name].trim() === '' ? NaN : Number(draft[name]);
+  validateSettings(settings);
+  return settings;
 }
 export function saveSettings(key: string, settings: AutomationSettings) {
   // Only the form values live here. No images, packets, decisions, orders or run state.
