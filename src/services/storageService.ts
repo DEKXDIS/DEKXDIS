@@ -1,9 +1,7 @@
 import { STRATEGIES_ENABLED } from '../config/releaseFeatures';
 import { nativeStore } from './nativeStore';
 import { systemLogService } from './systemLogService';
-import { moduleStateStore } from '../modules/stateStore';
-import { moduleRegistry } from '../modules/registry';
-import { WalletState, TradeOrder, LimitOrderSettings, ChartMarker, StrategyConfig, TokenConfig, DEFAULT_BSC_TOKENS, ChartUserSettings, getDefaultTokensForChain, ImpulseLadderSettings } from '../types/trading';
+import { WalletState, TradeOrder, LimitOrderSettings, ChartMarker, StrategyConfig, TokenConfig, DEFAULT_BSC_TOKENS, ChartUserSettings, getDefaultTokensForChain } from '../types/trading';
 import { WindowLayout } from '../components/DraggableResizableWindow';
 import { DEFAULT_CHAIN_ID, getChainConfig, getTradingQuoteToken } from '../types/chains';
 import { ThemeId, DEFAULT_THEME_ID } from '../types/theme';
@@ -17,7 +15,6 @@ const STORAGE_KEYS = {
   AUTO_WRAP: 'haven_defi_terminal_auto_wrap',
   get WINDOW_LAYOUTS() { return STRATEGIES_ENABLED ? 'haven_defi_terminal_window_layouts_modules_v1' : 'haven_defi_terminal_window_layouts_manual_v1'; },
   LIMIT_SETTINGS: 'haven_defi_terminal_limit_settings',
-  IMPULSE_LADDER_SETTINGS: 'haven_defi_terminal_impulse_ladder_settings_v1',
   CHART_MARKERS: 'haven_defi_terminal_chart_markers',
   STRATEGY_CONFIG: 'haven_defi_terminal_strategy_config_v2',
   CUSTOM_TOKENS: 'haven_defi_terminal_custom_tokens',
@@ -34,7 +31,6 @@ const STORAGE_KEYS = {
   CUSTOM_RPCS: 'haven_defi_terminal_custom_rpcs_v1',
   RPC_API_KEYS: 'haven_defi_terminal_rpc_api_keys_v1',
   DYNAMIC_RPCS: 'haven_defi_terminal_dynamic_rpcs_v1',
-  TOKEN_LADDERS: 'haven_defi_terminal_token_ladders_v1',
   WALLET_NICKNAMES: 'haven_defi_terminal_wallet_nicknames_v1',
 };
 
@@ -56,7 +52,7 @@ function archivedAccountingOrders(): TradeOrder[] {
 export const storageService = {
   getWallet(): WalletState | null { return nativeStore.getWallet(); },
   flush(): Promise<void> { return nativeStore.flush(); },
-  subscribe(listener: () => void) { return nativeStore.subscribe(listener); },
+  subscribe(listener: () => void) { return nativeStore.subscribe(key => { if (!key || key === STORAGE_KEYS.ORDERS) listener(); }); },
 
   getWalletNicknames(): Record<string, string> {
     try {
@@ -265,7 +261,7 @@ export const storageService = {
         : getRaw(STORAGE_KEYS.WINDOW_LAYOUTS);
       if (val) {
         const layouts = JSON.parse(val);
-        if (layouts.ladder) layouts.ladder.title = 'Strategy Modules';
+        if (layouts.ladder) layouts.ladder.title = 'Automation';
         return layouts;
       }
       return null;
@@ -380,119 +376,6 @@ export const storageService = {
     } catch (e) {
       console.error('Failed to save limit settings', e);
     }
-  },
-
-  getImpulseLadderSettings(): ImpulseLadderSettings {
-    try {
-      const val = getRaw(STORAGE_KEYS.IMPULSE_LADDER_SETTINGS);
-      if (val) return JSON.parse(val);
-      return {
-        isActive: false,
-        candleCount: 5,
-        minPercentGain: 1.0,
-        maxOpenOrders: 2,
-        usdAmount: '50',
-        tpEnabled: true,
-        tpPercent: 2.5,
-        slEnabled: true,
-        slPercent: 2.0,
-      };
-    } catch {
-      return {
-        isActive: false,
-        candleCount: 5,
-        minPercentGain: 1.0,
-        maxOpenOrders: 2,
-        usdAmount: '50',
-        tpEnabled: true,
-        tpPercent: 2.5,
-        slEnabled: true,
-        slPercent: 2.0,
-      };
-    }
-  },
-
-  saveImpulseLadderSettings(settings: ImpulseLadderSettings): void {
-    try {
-      setRaw(STORAGE_KEYS.IMPULSE_LADDER_SETTINGS, JSON.stringify(settings));
-    } catch (e) {
-      console.error('Failed to save impulse ladder settings', e);
-    }
-  },
-
-  getTokenLadders(): Record<string, ImpulseLadderSettings> {
-    try {
-      const val = getRaw(STORAGE_KEYS.TOKEN_LADDERS);
-      return val ? JSON.parse(val) : {};
-    } catch {
-      return {};
-    }
-  },
-
-  getTokenLadderSettings(tokenAddress: string, chainId: number): ImpulseLadderSettings {
-    try {
-      const all = this.getTokenLadders();
-      const key = `${chainId}_${tokenAddress.toLowerCase()}`;
-      if (all[key]) {
-        return all[key];
-      }
-    } catch (e) {
-      console.error('Failed to get token ladder settings', e);
-    }
-    const defaultSettings = this.getImpulseLadderSettings();
-    return {
-      ...defaultSettings,
-      isActive: false,
-      tokenAddress: tokenAddress.toLowerCase(),
-      chainId,
-    };
-  },
-
-  saveTokenLadderSettings(tokenAddress: string, chainId: number, settings: ImpulseLadderSettings): void {
-    try {
-      const current = this.getTokenLadders();
-      const key = `${chainId}_${tokenAddress.toLowerCase()}`;
-      current[key] = {
-        ...settings,
-        tokenAddress: tokenAddress.toLowerCase(),
-        chainId,
-      };
-      setRaw(STORAGE_KEYS.TOKEN_LADDERS, JSON.stringify(current));
-    } catch (e) {
-      console.error('Failed to save token ladder settings', e);
-    }
-  },
-
-  getAllRunningLadders(): Array<{ tokenAddress: string; chainId: number; settings: ImpulseLadderSettings; token?: TokenConfig }> {
-    if (!STRATEGIES_ENABLED) return [];
-    return moduleStateStore.getSnapshot().filter(run => {
-      const installed = moduleRegistry.get(run.moduleId);
-      return run.status === 'running' &&
-        installed?.status === 'installed' && installed.generation === run.generation && installed.packageHash === run.packageHash;
-    }).map(run => ({ tokenAddress: run.token.address, chainId: run.chainId, token: run.token,
-      settings: { ...this.getImpulseLadderSettings(), isActive: true, tokenAddress: run.token.address, chainId: run.chainId,
-        token: run.token, symbol: run.token.symbol, strategy: { strategyId: run.moduleId, runId: run.runId,
-          parameters: Object.fromEntries(Object.entries(run.configuration).map(([key, value]) => [key, String(value)])),
-          consumedSignals: Object.keys(run.effects).filter(key => run.effects[key].request.capability === 'orders.limit-entry.v1') } } }));
-  },
-
-  stopAllLadders(): number {
-    const ladders = this.getTokenLadders();
-    let stopped = moduleStateStore.pauseAll();
-    for (const [key, settings] of Object.entries(ladders)) {
-      if (settings?.isActive) {
-        ladders[key] = { ...settings, isActive: false };
-        stopped++;
-      }
-    }
-    setRaw(STORAGE_KEYS.TOKEN_LADDERS, JSON.stringify(ladders));
-
-    const legacy = this.getImpulseLadderSettings();
-    if (legacy.isActive) {
-      this.saveImpulseLadderSettings({ ...legacy, isActive: false });
-      if (!legacy.tokenAddress || !legacy.chainId || !ladders[`${legacy.chainId}_${legacy.tokenAddress.toLowerCase()}`]) stopped++;
-    }
-    return stopped;
   },
 
   getChartMarkers(tokenAddress?: string, chainId?: number): ChartMarker[] {
@@ -837,36 +720,6 @@ export const storageService = {
     } catch (e) {
       console.error('Failed to save token strategy', e);
     }
-  },
-
-  getAllRunningStrategies(): StrategyConfig[] {
-    const all = this.getTokenStrategies();
-    const running: StrategyConfig[] = [];
-    for (const cfg of Object.values(all)) {
-      if (cfg && cfg.isActive) {
-        running.push(cfg);
-      }
-    }
-    // Also include main strategy config if active
-    const mainCfg = this.getStrategyConfig();
-    if (mainCfg && mainCfg.isActive) {
-      const key = `${mainCfg.baseToken?.chainId || DEFAULT_CHAIN_ID}_${mainCfg.baseToken?.address.toLowerCase()}`;
-      if (!running.some((r) => `${r.baseToken?.chainId || DEFAULT_CHAIN_ID}_${r.baseToken?.address.toLowerCase()}` === key)) {
-        running.push(mainCfg);
-      }
-    }
-    return running;
-  },
-
-  getAllStoppedStrategies(): StrategyConfig[] {
-    const all = this.getTokenStrategies();
-    const stopped: StrategyConfig[] = [];
-    for (const cfg of Object.values(all)) {
-      if (cfg && !cfg.isActive) {
-        stopped.push(cfg);
-      }
-    }
-    return stopped;
   },
 
   getTheme(): ThemeId {

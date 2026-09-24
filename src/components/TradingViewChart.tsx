@@ -1,4 +1,7 @@
 import { STRATEGIES_ENABLED } from '../config/releaseFeatures';
+import { nativeStore } from '../services/nativeStore';
+import { readChartView, saveChartView, workspaceKey } from '../automation/settings';
+import { registerChart, type ChartCapture } from '../automation/chartRegistry';
 import { ChartOrderLabels, shortChartId } from './chartOrderLabels';
 import { buildFillMarkers } from '../utils/fillMarkers';
 import React, { useEffect, useLayoutEffect, useRef, useState, memo, useCallback } from 'react';
@@ -59,6 +62,9 @@ interface TradingViewChartProps {
   livePrice?: number;
   onCandlesUpdated?: (candles: CandlestickData<Time>[]) => void;
   onIntervalChange?: (interval: string) => void;
+  snapshotOnly?: boolean;
+  onCaptureReady?: (capture: () => ChartCapture) => void;
+  onCaptureError?: (message: string) => void;
 }
 
 export const TradingViewChart: React.FC<TradingViewChartProps> = memo(({
@@ -73,7 +79,11 @@ export const TradingViewChart: React.FC<TradingViewChartProps> = memo(({
   livePrice,
   onCandlesUpdated,
   onIntervalChange,
+  snapshotOnly = false,
+  onCaptureReady,
+  onCaptureError,
 }) => {
+  const viewKey = workspaceKey(nativeStore.getWallet()?.address || 'preview', chainId, token.address);
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const currentPrecisionRef = useRef<{ precision: number; minMove: number; format: (p: number) => string }>({
@@ -140,7 +150,7 @@ export const TradingViewChart: React.FC<TradingViewChartProps> = memo(({
   }, [livePrice]);
 
   // Persistent chart configuration & state
-  const [savedSettings] = useState<ChartUserSettings>(() => storageService.getChartSettings());
+  const [savedSettings] = useState(() => readChartView(viewKey, storageService.getChartSettings()));
 
   // Indicator Toggles & Interval initialized from persistent storage
   const [showVolume, setShowVolume] = useState<boolean>(savedSettings.showVolume);
@@ -163,7 +173,7 @@ export const TradingViewChart: React.FC<TradingViewChartProps> = memo(({
 
   // Sync indicator toggles and interval to persistent storage
   useEffect(() => {
-    storageService.saveChartSettings({
+    if (!snapshotOnly) saveChartView(viewKey, {
       showVolume,
       showEMA,
       showRSI,
@@ -197,7 +207,7 @@ export const TradingViewChart: React.FC<TradingViewChartProps> = memo(({
 
   // Zoom level & scroll position preservation refs
   const currentLogicalRangeRef = useRef<{ from: number; to: number } | null>(savedSettings.logicalRange || null);
-  const prevCandlesLengthRef = useRef<number>(0);
+  const prevCandlesLengthRef = useRef<number>(savedSettings.candleCount || 500);
 
   // Raw data cache for recalculating indicators
   const rawCandlesRef = useRef<CandlestickData<Time>[]>([]);
@@ -501,7 +511,7 @@ export const TradingViewChart: React.FC<TradingViewChartProps> = memo(({
     try {
       const activeTok = tokenRef.current;
       const activeChain = chainIdRef.current;
-      const { candles, volume } = await marketDataService.fetchCandles(activeTok, intv, activeChain, 500, { forceRefresh });
+      const { candles, volume } = await marketDataService.fetchCandles(activeTok, intv, activeChain, 500, { forceRefresh: forceRefresh || snapshotOnly });
 
       if (request !== candleRequest.current || activeTok.address !== tokenRef.current.address || activeChain !== chainIdRef.current || intv !== intervalRef.current) return;
       rawCandlesRef.current = candles;
@@ -595,7 +605,7 @@ export const TradingViewChart: React.FC<TradingViewChartProps> = memo(({
     rawCandlesRef.current = [];
     rawVolumeRef.current = [];
     lastCandleRef.current = null;
-    prevCandlesLengthRef.current = 0;
+    prevCandlesLengthRef.current = savedSettings.candleCount || 500;
     setHasHistory(false);
     setIsLoading(true);
     setErrorMessage(null);
@@ -892,6 +902,7 @@ export const TradingViewChart: React.FC<TradingViewChartProps> = memo(({
           height: containerRef.current.clientHeight,
         });
         updatePaneHeights();
+        if (!snapshotOnly) saveChartView(viewKey, { width: containerRef.current.clientWidth, height: containerRef.current.clientHeight });
       }
     };
 
@@ -907,11 +918,10 @@ export const TradingViewChart: React.FC<TradingViewChartProps> = memo(({
       }
       if (saveRangeTimer) clearTimeout(saveRangeTimer);
       saveRangeTimer = setTimeout(() => {
-        storageService.saveChartSettings({ logicalRange });
+        if (!snapshotOnly) saveChartView(viewKey, { logicalRange, candleCount: rawCandlesRef.current.length });
       }, 300);
     });
 
-    loadKlines(interval, false);
 
     return () => {
       candleRequest.current++;
@@ -949,6 +959,7 @@ export const TradingViewChart: React.FC<TradingViewChartProps> = memo(({
   }, [token.address, chainId, interval]);
 
   useEffect(() => {
+    if (snapshotOnly) return;
     if (token.binanceSymbol || marketDataService.getAlphaTokenByAddress(token.address.toLowerCase(), chainId)?.binanceSymbol) return;
     const timer = setInterval(() => void loadKlines(interval, false), 30000);
     return () => { clearInterval(timer); candleRequest.current++; };
@@ -963,6 +974,7 @@ export const TradingViewChart: React.FC<TradingViewChartProps> = memo(({
 
   // Real-time WebSocket streaming for Binance Spot and Binance Alpha tokens
   useEffect(() => {
+    if (snapshotOnly) return;
     const unsub = binanceWebSocketService.subscribeKline(
       token,
       interval,
@@ -1249,6 +1261,23 @@ export const TradingViewChart: React.FC<TradingViewChartProps> = memo(({
     plugin.setMarkers(allMarkers);
   }, [orders, chartMarkers, strategyMarkers, showSignals, token.address, chainId, interval, isLoading]);
 
+  useEffect(() => {
+    if (errorMessage) { onCaptureError?.(errorMessage); return; }
+    if (!hasHistory || isLoading) return;
+    const capture = (): ChartCapture => {
+      if (!chartRef.current || !rawCandlesRef.current.length) throw new Error('Chart is not ready');
+      const canvas = chartRef.current.takeScreenshot(true, false);
+      return { image: canvas.toDataURL('image/png'), capturedAt: Date.now(), interval,
+        lastCandle: { ...rawCandlesRef.current[rawCandlesRef.current.length - 1] },
+        orders: ordersRef.current.slice(), width: canvas.width, height: canvas.height };
+    };
+    const unregister = snapshotOnly ? undefined : registerChart(viewKey, capture);
+    // Include series, indicators, labels and fill markers after their render pass.
+    let second = 0;
+    const first = requestAnimationFrame(() => { second = requestAnimationFrame(() => onCaptureReady?.(capture)); });
+    return () => { unregister?.(); cancelAnimationFrame(first); cancelAnimationFrame(second); };
+  }, [viewKey, interval, hasHistory, isLoading, errorMessage, snapshotOnly, onCaptureReady, onCaptureError]);
+
   const chainConf = getChainConfig(chainId);
 
   return (
@@ -1436,6 +1465,7 @@ export const TradingViewChart: React.FC<TradingViewChartProps> = memo(({
         <div 
           ref={containerRef} 
           className="h-full w-full cursor-crosshair"
+          style={snapshotOnly ? { width: savedSettings.width || 1100, height: savedSettings.height || 650 } : undefined}
         />
 
         {isLoading && !hasHistory && !errorMessage && (

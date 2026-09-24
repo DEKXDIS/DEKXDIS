@@ -660,6 +660,7 @@ export interface TradeBracketConfig {
 }
 
 export interface TradeOrder {
+  automationRequestId?: string;
   id: string; // Order UID from CoW Protocol
   ownerAddress?: string;
   submissionError?: string;
@@ -672,12 +673,7 @@ export interface TradeOrder {
   type: 'BNB_TO_USDT' | 'USDT_TO_BNB' | 'TOKEN_SWAP';
   orderCategory?: 'market' | 'limit' | 'limit_sell' | 'take_profit' | 'stop_loss' | 'strategy_buy' | 'strategy_sell';
   strategyId?: string;
-  /** Immutable package/run/intent attribution retained after module removal. */
-  moduleId?: string;
-  moduleVersion?: string;
-  moduleHash?: string;
-  moduleRunId?: string;
-  moduleIntentId?: string;
+
   ocoGroupId?: string;
   connectedOrderId?: string;
   limitPrice?: number;
@@ -814,24 +810,3 @@ export interface ChartUserSettings {
   interval: string;
   logicalRange?: { from: number; to: number } | null;
 }
-
-export interface ImpulseLadderSettings {
-  // Versioned strategy run; absent on old ladder settings, which must never auto-start new rules.
-  strategy?: import('../strategy/contracts').StrategyRun;
-  evaluationMode?: 'intrabar' | 'close';
-  token?: TokenConfig;
-  isActive: boolean;
-  candleCount: number;
-  minPercentGain: number;
-  maxOpenOrders: number;
-  usdAmount: string;
-  tpEnabled: boolean;
-  tpPercent: number;
-  slEnabled: boolean;
-  slPercent: number;
-  tokenAddress?: string;
-  chainId?: number;
-  symbol?: string;
-  timeframe?: string;
-}
-

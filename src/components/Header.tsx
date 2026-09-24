@@ -11,7 +11,7 @@ import { getPricePrecision } from './TradingViewChart';
 import { ThemeId, getThemeConfig } from '../types/theme';
 
 interface HeaderProps {
-  activeLadders?: ReturnType<typeof storageService.getAllRunningLadders>;
+  activeLadders?: import('../automation/runner').ActiveWorkspace[];
   onSelectActiveLadder?: (token: TokenConfig, chainId: number) => void;
   selectedChainId: number;
   onSelectChain: (chainId: number) => void;
@@ -157,10 +157,10 @@ export const Header: React.FC<HeaderProps> = ({
                   if (item?.token) onSelectActiveLadder?.(item.token, item.chainId);
                 }}
               >
-                <option value="" disabled>Switch active token</option>
+                <option value="" disabled>Active strategies</option>
                 {activeLadders.map(item => (
                   <option key={`${item.chainId}:${item.tokenAddress}`} value={`${item.chainId}:${item.tokenAddress.toLowerCase()}`} disabled={!item.token}>
-                    {item.token?.symbol || item.settings.symbol || 'Unknown token'} | {getChainConfig(item.chainId).shortName} | ...{item.tokenAddress.slice(-6)}{!item.token ? ' (needs setup)' : ''}
+                    {item.token?.symbol || item.token.symbol || 'Unknown token'} | {getChainConfig(item.chainId).shortName} | ...{item.tokenAddress.slice(-6)}{!item.token ? ' (needs setup)' : ''}
                   </option>
                 ))}
               </select>
@@ -478,10 +478,10 @@ export const Header: React.FC<HeaderProps> = ({
                     ? 'bg-emerald-500/20 border-emerald-500/60 text-emerald-400 font-bold'
                     : 'bg-slate-900 border-slate-700 text-slate-300 hover:text-white hover:border-emerald-500/50'
                 }`}
-                title="Toggle Strategy Modules"
+                title="Toggle Automation"
               >
                 <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
-                <span className="hidden sm:inline">Strategy Modules</span>
+                <span className="hidden sm:inline">Automation</span>
               </button>
             )}
 

@@ -22,30 +22,16 @@ struct Vault { version: u32, active: String, wallets: BTreeMap<String, SecretWal
 #[derive(Clone, Serialize, Deserialize)]
 struct ModuleSecret { value: String }
 impl Drop for ModuleSecret { fn drop(&mut self) { self.value.zeroize(); } }
-#[derive(Clone, Serialize)]
-pub struct ModuleSecretStatus { pub revision: u64, pub configured: Vec<String>, pub shared: Vec<String>, pub conflicts: Vec<String> }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WalletInfo { address: String, is_custom: bool, needs_backup: bool }
 #[derive(Serialize)]
 pub struct Startup { wallet: WalletInfo, data: BTreeMap<String, String>, notice: Option<String> }
-/// Everything a module needs to reach a provider: its keys, their revisions and which slot maps to
-/// which provider. This is its own encrypted file so that saving a key never rewrites the wallet,
-/// and the wallet never carries a module's credentials through a re-encrypt.
-#[derive(Clone, Default, Serialize, Deserialize)]
-struct Secrets {
-    #[serde(default)] module_secrets: BTreeMap<String, BTreeMap<String, ModuleSecret>>,
-    #[serde(default)] module_secret_revisions: BTreeMap<String, u64>,
-    #[serde(default)] provider_secrets: BTreeMap<String, ModuleSecret>,
-    #[serde(default)] module_secret_bindings: BTreeMap<String, BTreeMap<String, String>>,
-}
 pub struct VaultState {
     path: PathBuf,
     data_path: PathBuf,
-    secrets_path: PathBuf,
     lock: Mutex<()>,
     cache: Mutex<Option<Zeroizing<Vec<u8>>>>,
-    secrets_cache: Mutex<Option<Zeroizing<Vec<u8>>>>,
 }
 
 
@@ -88,7 +74,7 @@ pub fn wallet_confirm_backup(state: State<VaultState>, address: String, suffix: 
 }
 
 #[cfg(windows)]
-fn crypt(input: &[u8], encrypt: bool) -> Result<Vec<u8>, String> {
+pub(crate) fn crypt(input: &[u8], encrypt: bool) -> Result<Vec<u8>, String> {
     use windows_sys::Win32::{Foundation::LocalFree, Security::Cryptography::{CRYPT_INTEGER_BLOB, CryptProtectData, CryptUnprotectData, CRYPTPROTECT_UI_FORBIDDEN}};
     let source = CRYPT_INTEGER_BLOB { cbData: input.len().try_into().map_err(err)?, pbData: input.as_ptr() as *mut u8 };
     let mut output = CRYPT_INTEGER_BLOB { cbData: 0, pbData: std::ptr::null_mut() };
@@ -103,7 +89,7 @@ fn crypt(input: &[u8], encrypt: bool) -> Result<Vec<u8>, String> {
     }
 }
 #[cfg(not(windows))]
-fn crypt(_: &[u8], _: bool) -> Result<Vec<u8>, String> { Err("This secure wallet build requires Windows. No plaintext fallback is available.".into()) }
+pub(crate) fn crypt(_: &[u8], _: bool) -> Result<Vec<u8>, String> { Err("This secure wallet build requires Windows. No plaintext fallback is available.".into()) }
 
 fn plain_bytes(vault: &Vault) -> Result<Zeroizing<Vec<u8>>, String> {
     // Older hosts must reject V3 instead of silently dropping provider credentials.
@@ -111,7 +97,7 @@ fn plain_bytes(vault: &Vault) -> Result<Zeroizing<Vec<u8>>, String> {
     persisted.version = 3;
     Ok(Zeroizing::new(serde_json::to_vec(&persisted).map_err(err)?))
 }
-fn write_plain(path: &Path, plain: &[u8]) -> Result<(), String> {
+pub(crate) fn write_plain(path: &Path, plain: &[u8]) -> Result<(), String> {
     let encrypted = crypt(plain, true)?;
     let parent = path.parent().ok_or_else(|| err("path"))?;
     fs::create_dir_all(parent).map_err(err)?;
@@ -131,9 +117,7 @@ fn write_plain(path: &Path, plain: &[u8]) -> Result<(), String> {
     Ok(())
 }
 impl VaultState {
-    /// The decrypted vault is held in memory after its first read. Every module event checks the
-    /// active wallet and the credential revision, so without this each step of a strategy paid for
-    /// a full disk read and DPAPI decrypt several times over.
+    /// Read the encrypted wallet once; signing uses the in-memory copy.
     fn read(&self) -> Result<Vault, String> {
         if let Some(plain) = self.cache.lock().map_err(err)?.as_ref() {
             return parse(&plain);
@@ -150,25 +134,7 @@ impl VaultState {
         *self.cache.lock().map_err(err)? = Some(plain);
         Ok(())
     }
-    /// The module credentials live in their own encrypted file, read on first use and written only
-    /// when a key is saved or removed.
-    fn read_secrets(&self) -> Result<Secrets, String> {
-        if let Some(plain) = self.secrets_cache.lock().map_err(err)?.as_ref() {
-            return serde_json::from_slice(plain).map_err(err);
-        }
-        if !self.secrets_path.exists() { return Ok(Secrets::default()); }
-        let bytes = fs::read(&self.secrets_path).map_err(err)?;
-        let plain = Zeroizing::new(crypt(&bytes, false)?);
-        let secrets: Secrets = serde_json::from_slice(&plain).map_err(err)?;
-        *self.secrets_cache.lock().map_err(err)? = Some(plain);
-        Ok(secrets)
-    }
-    fn write_secrets(&self, secrets: &Secrets) -> Result<(), String> {
-        let plain = Zeroizing::new(serde_json::to_vec(secrets).map_err(err)?);
-        write_plain(&self.secrets_path, &plain)?;
-        *self.secrets_cache.lock().map_err(err)? = Some(plain);
-        Ok(())
-    }
+
 }
 fn parse(plain: &[u8]) -> Result<Vault, String> {
     let vault: Vault = serde_json::from_slice(plain).map_err(err)?;
@@ -180,25 +146,21 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     app.manage(VaultState {
         path: root.join("haven-vault.dpapi"),
         data_path: root.join("haven-data.json"),
-        secrets_path: root.join("haven-secrets.dpapi"),
         lock: Mutex::new(()),
         cache: Mutex::new(None),
-        secrets_cache: Mutex::new(None),
     });
     Ok(())
 }
 
-/// Everything that is not a secret: settings, orders, chart markers, module state.
+/// Non-secret application data: settings, orders and chart markers.
 ///
 /// This is deliberately a separate plain file. It changes on almost every action, and keeping it
 /// inside the encrypted vault meant the private key was re-encrypted and flushed to disk many times
 /// a minute for data that has nothing to do with it. The wallet file is now written only when the
 /// wallet itself changes.
-fn read_data(path: &Path) -> BTreeMap<String, String> {
-    match fs::read(path) {
-        Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or_default(),
-        Err(_) => BTreeMap::new(),
-    }
+fn read_data(path: &Path) -> Result<BTreeMap<String, String>, String> {
+    let bytes = fs::read(path).map_err(err)?;
+    serde_json::from_slice(&bytes).map_err(err)
 }
 fn write_data(path: &Path, data: &BTreeMap<String, String>) -> Result<(), String> {
     let bytes = serde_json::to_vec(data).map_err(err)?;
@@ -207,9 +169,9 @@ fn write_data(path: &Path, data: &BTreeMap<String, String>) -> Result<(), String
     let temp = path.with_extension("json.tmp");
     let mut file = fs::File::create(&temp).map_err(err)?;
     file.write_all(&bytes).map_err(err)?;
+    file.sync_all().map_err(err)?;
     drop(file);
-    // Atomic replace without a full disk flush: a rename cannot leave a half-written file, and
-    // paying for a sync on every settings change is what made the whole program sluggish.
+    // Actual order/settings changes are durable. Automation packets never enter this store.
     #[cfg(windows)] {
         use std::os::windows::ffi::OsStrExt;
         use windows_sys::Win32::Storage::FileSystem::{MoveFileExW, MOVEFILE_REPLACE_EXISTING};
@@ -224,7 +186,7 @@ fn write_data(path: &Path, data: &BTreeMap<String, String>) -> Result<(), String
 #[tauri::command]
 pub fn vault_open(state: State<VaultState>, legacy: BTreeMap<String, String>) -> Result<Startup, String> {
     let _guard = state.lock.lock().map_err(err)?;
-    let mut vault = if state.path.exists() { state.read()? } else {
+    let vault = if state.path.exists() { state.read()? } else {
         // An interrupted first write is not silently replaced with a new identity.
         if state.path.with_extension("tmp").exists() { return Err(err("interrupted first write")); }
         let mut data = legacy;
@@ -256,138 +218,13 @@ pub fn vault_open(state: State<VaultState>, legacy: BTreeMap<String, String>) ->
         state.write(&vault)?;
         vault
     };
-    if vault.version < 3 { state.write(&vault)?; }
-    // Settings live beside the vault, not inside it. Anything an older build kept in the encrypted
-    // file is moved out once, and the vault is then written without it so the two never share a
-    // write again.
-    let mut stored = read_data(&state.data_path);
-    let migrated = !vault.data.is_empty();
-    if migrated {
-        for (key, value) in vault.data.iter() { stored.insert(key.clone(), value.clone()); }
-        write_data(&state.data_path, &stored)?;
-        vault.data = BTreeMap::new();
-        if vault.version >= 3 { state.write(&vault)?; }
-    }
-    // Module credentials move out of the wallet file and into their own encrypted file, so the
-    // wallet is never rewritten to save or change a provider key.
-    let carried = !vault.module_secrets.is_empty() || !vault.provider_secrets.is_empty()
-        || !vault.module_secret_bindings.is_empty() || !vault.module_secret_revisions.is_empty();
-    if carried {
-        let mut secrets = state.read_secrets()?;
-        for (id, slots) in vault.module_secrets.iter() {
-            let entry = secrets.module_secrets.entry(id.clone()).or_default();
-            for (slot, value) in slots.iter() { entry.insert(slot.clone(), value.clone()); }
-        }
-        for (id, pairs) in vault.module_secret_bindings.iter() {
-            let entry = secrets.module_secret_bindings.entry(id.clone()).or_default();
-            for (slot, provider) in pairs.iter() { entry.insert(slot.clone(), provider.clone()); }
-        }
-        for (provider, value) in vault.provider_secrets.iter() { secrets.provider_secrets.insert(provider.clone(), value.clone()); }
-        for (id, revision) in vault.module_secret_revisions.iter() { secrets.module_secret_revisions.insert(id.clone(), *revision); }
-        state.write_secrets(&secrets)?;
-        vault.module_secrets = BTreeMap::new();
-        vault.module_secret_revisions = BTreeMap::new();
-        vault.provider_secrets = BTreeMap::new();
-        vault.module_secret_bindings = BTreeMap::new();
-        state.write(&vault)?;
-    }
+    // Existing wallet files are read only at startup. Older non-secret settings
+    // can seed a missing data file, without rewriting or migrating the wallet.
+    let stored = if state.data_path.exists() { read_data(&state.data_path)? }
+        else { let data = vault.data.clone(); write_data(&state.data_path, &data)?; data };
     Ok(Startup { wallet: info(&vault.wallets[&vault.active]), data: stored, notice: vault.notice })
 }
 fn account_key(k: &str) -> bool { ["orders", "chart_markers", "token_ladders", "impulse_ladder_settings", "token_strategies", "strategy_config", "tracked_tokens", "submissions", "module_runs", "module_order_intents", "module_config", "module_state", "module_events"].iter().any(|part| k.contains(part)) }
-
-pub(crate) fn module_secret_status(state: &VaultState, module_id: &str) -> Result<ModuleSecretStatus,String> {
-    let _guard=state.lock.lock().map_err(err)?;
-    let secrets = state.read_secrets()?;
-    Ok(secret_status(&secrets, module_id))
-}
-fn bump_secret_revision(secrets: &mut Secrets, module_id: &str) -> Result<(), String> {
-    let revision = secrets.module_secret_revisions.entry(module_id.into()).or_default();
-    *revision = revision.checked_add(1).ok_or("Secret revision exhausted")?;
-    Ok(())
-}
-fn secret_status(secrets: &Secrets, module_id: &str) -> ModuleSecretStatus {
-    let mut configured: std::collections::BTreeSet<String> = secrets.module_secrets.get(module_id).map(|m| m.keys().cloned().collect()).unwrap_or_default();
-    let mut shared = Vec::new();
-    let mut conflicts = Vec::new();
-    if let Some(bindings) = secrets.module_secret_bindings.get(module_id) {
-        for (slot, provider) in bindings {
-            shared.push(slot.clone());
-            if let Some(saved) = secrets.provider_secrets.get(provider) {
-                configured.insert(slot.clone());
-                if secrets.module_secrets.get(module_id).and_then(|m| m.get(slot)).is_some_and(|local| local.value != saved.value) {
-                    conflicts.push(slot.clone());
-                }
-            }
-        }
-    }
-    ModuleSecretStatus { revision: *secrets.module_secret_revisions.get(module_id).unwrap_or(&0), configured: configured.into_iter().collect(), shared, conflicts }
-}
-fn bump_provider_users(secrets: &mut Secrets, provider: &str) -> Result<(), String> {
-    let ids: Vec<String> = secrets.module_secret_bindings.iter().filter(|(_, slots)| slots.values().any(|p| p == provider)).map(|(id, _)| id.clone()).collect();
-    for id in ids { bump_secret_revision(secrets, &id)?; }
-    Ok(())
-}
-/// Called only with a verified installed manifest under the registry mutation lock.
-pub(crate) fn module_secrets_bind(state: &VaultState, module_id: &str, bindings: BTreeMap<String, String>) -> Result<(), String> {
-    let _guard = state.lock.lock().map_err(err)?;
-    let mut secrets = state.read_secrets()?;
-    let mut changed = false;
-    if secrets.module_secret_bindings.get(module_id) != Some(&bindings) {
-        secrets.module_secret_bindings.insert(module_id.into(), bindings.clone());
-        bump_secret_revision(&mut secrets, module_id)?;
-        changed = true;
-    }
-    for (slot, provider) in &bindings {
-        if let Some(local) = secrets.module_secrets.get(module_id).and_then(|m| m.get(slot)).cloned() {
-            if !secrets.provider_secrets.contains_key(provider) {
-                secrets.provider_secrets.insert(provider.clone(), local.clone());
-                bump_provider_users(&mut secrets, provider)?;
-                changed = true;
-            }
-            // Preserve unequal pre-existing keys and expose the conflict in status.
-            // A user Save resolves it explicitly; no module changes account silently.
-            if secrets.provider_secrets[provider].value == local.value {
-                secrets.module_secrets.get_mut(module_id).unwrap().remove(slot);
-                changed = true;
-            }
-        }
-    }
-    if changed { state.write_secrets(&secrets)?; }
-    Ok(())
-}
-pub(crate) fn module_secret_write(state:&VaultState,module_id:&str,slot_id:&str,value:Option<String>)->Result<ModuleSecretStatus,String>{
-    let value=value.map(Zeroizing::new);
-    if value.as_ref().is_some_and(|s|s.is_empty()||s.len()>8192||s.chars().any(char::is_control)){return Err("Secret must contain 1 to 8192 characters without control characters".into());}
-    let _guard=state.lock.lock().map_err(err)?;let mut secrets=state.read_secrets()?;
-    if let Some(provider) = secrets.module_secret_bindings.get(module_id).and_then(|m| m.get(slot_id)).cloned() {
-        if let Some(value) = value { secrets.provider_secrets.insert(provider.clone(), ModuleSecret { value: value.to_string() }); }
-        else { secrets.provider_secrets.remove(&provider); }
-        // Explicit replacement/deletion applies to every module using this provider,
-        // including older unequal keys retained during migration.
-        let users: Vec<(String, String)> = secrets.module_secret_bindings.iter().flat_map(|(id, slots)| slots.iter().filter(|(_, p)| *p == &provider).map(|(slot, _)| (id.clone(), slot.clone()))).collect();
-        for (id, slot) in users { if let Some(slots) = secrets.module_secrets.get_mut(&id) { slots.remove(&slot); } }
-        bump_provider_users(&mut secrets, &provider)?;
-    } else {
-        if let Some(value)=value {secrets.module_secrets.entry(module_id.into()).or_default().insert(slot_id.into(),ModuleSecret{value:value.to_string()});}
-        else if let Some(slots)=secrets.module_secrets.get_mut(module_id){slots.remove(slot_id);}
-        bump_secret_revision(&mut secrets, module_id)?;
-    }
-    let result=secret_status(&secrets,module_id);state.write_secrets(&secrets)?;Ok(result)
-}
-pub(crate) fn module_secrets_remove(state:&VaultState,module_id:&str)->Result<(),String>{
-    let _guard=state.lock.lock().map_err(err)?;let mut secrets=state.read_secrets()?;
-    if !secret_status(&secrets, module_id).conflicts.is_empty() { return Err("This module has a different saved provider key. Save the key you want to use before updating or removing the module.".into()); }
-    secrets.module_secrets.remove(module_id);secrets.module_secret_bindings.remove(module_id);bump_secret_revision(&mut secrets,module_id)?;state.write_secrets(&secrets)
-}
-pub(crate) fn module_secret_inject(state:&VaultState,module_id:&str,slot_id:&str,expected_revision:u64)->Result<Zeroizing<String>,String>{
-    let _guard=state.lock.lock().map_err(err)?;let secrets=state.read_secrets()?;
-    if *secrets.module_secret_revisions.get(module_id).unwrap_or(&0)!=expected_revision{return Err("Module credential changed; request invalidated".into());}
-    if secret_status(&secrets,module_id).conflicts.iter().any(|slot|slot==slot_id) { return Err("This module has a different saved provider key. Save the key you want to use.".into()); }
-    let secret=secrets.module_secret_bindings.get(module_id).and_then(|s|s.get(slot_id)).and_then(|provider|secrets.provider_secrets.get(provider))
-        .or_else(||secrets.module_secrets.get(module_id).and_then(|s|s.get(slot_id))).ok_or("Configure the module credential before making this request")?;
-    Ok(Zeroizing::new(secret.value.clone()))
-}
-pub(crate) fn require_active_wallet(state:&VaultState,address:&str)->Result<(),String>{let _guard=state.lock.lock().map_err(err)?;if state.read()?.active!=address.to_lowercase(){return Err("Wallet changed; module operation invalidated".into());}Ok(())}
 
 #[tauri::command]
 pub fn vault_save(state: State<VaultState>, data: BTreeMap<String, String>) -> Result<(), String> {
@@ -404,8 +241,7 @@ pub fn wallet_list(state: State<VaultState>) -> Result<Vec<WalletInfo>, String> 
     Ok(vault.wallets.values().map(info).collect())
 }
 #[tauri::command]
-pub fn wallet_switch(state: State<VaultState>, modules: State<crate::modules::ModuleState>, address: String) -> Result<WalletInfo, String> {
-    modules.invalidate_wallet()?;
+pub fn wallet_switch(state: State<VaultState>, address: String) -> Result<WalletInfo, String> {
     let _guard = state.lock.lock().map_err(err)?;
     let mut vault = state.read()?;
     let result = select_wallet(&mut vault, &address)?;
@@ -420,8 +256,7 @@ fn select_wallet(vault: &mut Vault, address: &str) -> Result<WalletInfo, String>
     Ok(result)
 }
 #[tauri::command]
-pub fn wallet_replace(state: State<VaultState>, modules: State<crate::modules::ModuleState>, input: Option<String>) -> Result<WalletInfo, String> {
-    modules.invalidate_wallet()?;
+pub fn wallet_replace(state: State<VaultState>, input: Option<String>) -> Result<WalletInfo, String> {
     let _guard = state.lock.lock().map_err(err)?;
     let mut vault = state.read()?;
     let wallet = match input { Some(input) => { let secret = Zeroizing::new(input); wallet_from_input(&secret)? }, None => new_wallet()? };

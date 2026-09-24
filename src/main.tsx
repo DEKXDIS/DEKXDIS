@@ -1,4 +1,4 @@
-import { STRATEGIES_ENABLED, initializeReleaseFeatures } from './config/releaseFeatures';
+import { initializeReleaseFeatures } from './config/releaseFeatures';
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { nativeStore } from './services/nativeStore'
@@ -13,14 +13,6 @@ nativeStore.initialize().catch(error => {
   catch (error) {
     const { systemLogService } = await import('./services/systemLogService');
     systemLogService.logError('SYSTEM', 'Beta access could not be restored', String(error));
-  }
-  if (STRATEGIES_ENABLED) {
-  const { moduleHost } = await import('./modules/host');
-  try { await moduleHost.initialize(); }
-  catch (error) {
-    const { systemLogService } = await import('./services/systemLogService');
-    systemLogService.logError('STRATEGY', 'Module host could not initialize', String(error));
-  }
   }
   const { default: App } = await import('./App');
   root.render(<React.StrictMode><App /></React.StrictMode>);

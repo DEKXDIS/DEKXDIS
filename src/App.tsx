@@ -12,7 +12,8 @@ import { TradeMetrics } from './components/TradeMetrics';
 import { OrderHistory } from './components/OrderHistory';
 import { historyTokenSide } from './utils/orderHistory';
 import { orderFundingStatus, OrderFundingSnapshot, OrderFundingStatus } from './utils/orderFunding';
-import { ImpulseLadderWindow } from './components/ImpulseLadderWindow';
+import { AutomationWindow } from './automation/AutomationWindow';
+import { automation } from './automation/runner';
 import { WalletModal } from './components/WalletModal';
 import { WalletChangeWarningModal } from './components/WalletChangeWarningModal';
 import { CloseConfirmationModal } from './components/CloseConfirmationModal';
@@ -49,8 +50,6 @@ import { storageService } from './services/storageService';
 import { web3Service } from './services/web3Service';
 import { rpcService } from './services/rpcService';
 import { cowProtocol } from './services/cowProtocol';
-import { createLadderMonitor } from './services/ladderMonitor';
-import { moduleHost } from './modules/host';
 import { marketDataService } from './services/marketDataService';
 import { binanceWebSocketService } from './services/binanceWebSocketService';
 import { systemLogService } from './services/systemLogService';
@@ -154,7 +153,7 @@ export const App: React.FC = () => {
       }
     }
   }, [orders, fundingStatuses, fundingSnapshot, selectedChainId, wallet?.address]);
-  const activeLadders = storageService.getAllRunningLadders();
+  const activeLadders = useSyncExternalStore(automation.subscribe, automation.activeWorkspaces);
   const [chartMarkers, setChartMarkers] = useState<ChartMarker[]>(() =>
     storageService.getChartMarkers(selectedToken?.address, storageService.getSelectedChainId())
   );
@@ -304,7 +303,7 @@ export const App: React.FC = () => {
       },
       ladder: {
         id: 'ladder',
-        title: 'Strategy Modules',
+        title: 'Automation',
         x: ladderX,
         y: margin,
         width: ladderWidth,
@@ -483,11 +482,11 @@ export const App: React.FC = () => {
       .filter((o) => (o.status === 'open' || o.status === 'pending') && (o.orderCategory === 'stop_loss' || o.isConditional))
       .map((o) => ({ address: o.sellToken.toLowerCase(), symbol: o.sellSymbol, chainId: o.chainId || selectedChainId }));
 
-    // Collect all tokens with active Impulse Ladders
-    const runningLadders = storageService.getAllRunningLadders();
+    // Keep enabled workspaces represented in the background price subscriptions
+    const runningLadders = automation.activeWorkspaces();
     const ladderTokens = runningLadders
-      .filter((l) => l.settings.isActive)
-      .map((l) => ({ address: l.tokenAddress.toLowerCase(), symbol: l.token?.symbol || l.settings.symbol || 'TOKEN', chainId: l.chainId }));
+      .filter((l) => l.running)
+      .map((l) => ({ address: l.tokenAddress.toLowerCase(), symbol: l.token.symbol, chainId: l.chainId }));
 
     // Merge unique tokens
     const tokenMap = new Map<string, { address: string; symbol: string; chainId: number }>();
@@ -525,7 +524,7 @@ export const App: React.FC = () => {
       );
       backgroundPriceSubscriptions.current.set(key, { stream, unsubscribe: unsub });
     });
-  }, [orders, selectedChainId, selectedToken, customTokens, alphaTokensByChain]);
+  }, [orders, selectedChainId, selectedToken, customTokens, alphaTokensByChain, activeLadders]);
 
   // Market Price Fetch for selected token (REST fallback / on-chain DEX query)
   const assetGeneration = useRef(0);
@@ -729,7 +728,7 @@ export const App: React.FC = () => {
   const changeWalletSafely = useCallback(async (change: () => Promise<WalletState>) => {
     if (walletChangeRunning.current) throw new Error('A wallet change is already in progress.');
     const currentWallet = nativeStore.getWallet();
-    const ladderCount = currentWallet ? storageService.getAllRunningLadders().length : 0;
+    const ladderCount = currentWallet ? automation.activeWorkspaces().length : 0;
     const orderCount = currentWallet ? storageService.getOrders().filter(order => order.status === 'open' || order.status === 'pending').length : 0;
     if ((ladderCount > 0 || orderCount > 0) && !(await confirmWalletCleanup(ladderCount, orderCount))) {
       throw new Error('Wallet switch cancelled. The current wallet remains active.');
@@ -737,10 +736,9 @@ export const App: React.FC = () => {
 
     walletChangeRunning.current = true;
     try {
-      if (currentWallet) await moduleHost.pauseAll();
+      if (currentWallet) automation.stopAll();
       return await exclusive(async () => {
         if (currentWallet) {
-          storageService.stopAllLadders();
           await storageService.flush();
           const activeIds = storageService.getOrders()
             .filter(order => order.status === 'open' || order.status === 'pending')
@@ -763,10 +761,7 @@ export const App: React.FC = () => {
         }
 
         const nextWallet = await change();
-        // A wallet used previously may still have an old ladder saved as active.
-        // Disable it before React starts that wallet's background ladder monitor.
-        await moduleHost.pauseAll(false);
-        storageService.stopAllLadders();
+        automation.stopAll();
         await storageService.flush();
         return nextWallet;
       });
@@ -873,20 +868,6 @@ export const App: React.FC = () => {
       systemLogService.logError('ORDER', 'Cancellation not confirmed', String(error));
     }
   }, [wallet?.address]);
-
-  // Every active token has an independent background cycle, even with its window closed.
-  useEffect(() => {
-    if (!STRATEGIES_ENABLED || !wallet) return;
-    const monitor = createLadderMonitor(wallet);
-    let stopped = false;
-    let timer: ReturnType<typeof setInterval> | undefined;
-    void import('./modules/host').then(({ moduleHost }) => moduleHost.initialize()).then(() => {
-      if (stopped) return;
-      void monitor.tick();
-      timer = setInterval(() => { void monitor.tick(); }, 2000);
-    }).catch(error => systemLogService.logError('STRATEGY', 'Module host could not initialize', String(error)));
-    return () => { stopped = true; monitor.stop(); if (timer !== undefined) clearInterval(timer); };
-  }, [wallet?.address, strategiesEnabled]);
 
   const handleClearOrders = (tokenAddress?: string, chainId?: number) => {
     if (tokenAddress) {
@@ -1174,6 +1155,7 @@ export const App: React.FC = () => {
             containerBounds={canvasBounds}
           >
             <TradingViewChart
+              key={`${wallet?.address}:${selectedChainId}:${selectedToken.address.toLowerCase()}`}
               token={selectedToken}
               chainId={selectedChainId}
               orders={orders}
@@ -1211,7 +1193,7 @@ export const App: React.FC = () => {
           </DraggableResizableWindow>
         )}
 
-        {/* WINDOW 6: IMPULSE SUPPORT LADDER */}
+        {/* AUTOMATION WINDOW */}
         {STRATEGIES_ENABLED && isLadderOpen && windows.ladder && (
           <DraggableResizableWindow
             layout={windows.ladder}
@@ -1219,7 +1201,7 @@ export const App: React.FC = () => {
             onBringToFront={handleBringToFront}
             containerBounds={canvasBounds}
           >
-            <ImpulseLadderWindow
+            <AutomationWindow
               key={`${wallet?.address}:${selectedChainId}:${selectedToken.address.toLowerCase()}`}
               selectedToken={selectedToken}
               selectedChainId={selectedChainId}

@@ -46,7 +46,6 @@ pub fn beta_status(app: tauri::AppHandle) -> Result<bool, String> {
     if !strategies_enabled() {
         let accepted = read_acceptance(&app.path().app_local_data_dir().map_err(|e| e.to_string())?.join("beta-acceptance.json"))?;
         if accepted {
-            crate::modules::start_services(&app)?;
             BETA_ENABLED.store(true, Ordering::Release);
         }
     }
@@ -58,7 +57,6 @@ pub fn beta_accept(app: tauri::AppHandle, key: String, agreed: bool, terms_versi
     let folder = app.path().app_local_data_dir().map_err(|e| e.to_string())?;
     fs::create_dir_all(&folder).map_err(|e| format!("Could not create beta settings folder: {e}"))?;
     write_acceptance(&folder.join("beta-acceptance.json"), &key, agreed, &terms_version, &app.package_info().version.to_string())?;
-    crate::modules::start_services(&app)?;
     BETA_ENABLED.store(true, Ordering::Release);
     Ok(true)
 }

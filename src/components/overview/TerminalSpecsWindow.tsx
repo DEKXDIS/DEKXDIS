@@ -1,3 +1,4 @@
+import { automation } from '../../automation/runner';
 import { STRATEGIES_ENABLED } from '../../config/releaseFeatures';
 import { buildFilledExitPnls } from '../../utils/orderHistory';
 import React, { useMemo } from 'react';
@@ -32,7 +33,7 @@ export const TerminalSpecsWindow: React.FC<TerminalSpecsWindowProps> = ({
     return total;
   }, [chainBalances]);
 
-  const runningStrategiesCount = storageService.getAllRunningLadders().length;
+  const runningStrategiesCount = automation.activeWorkspaces().length;
 
   const totalTradesCount = allOrders.filter(o => o.status === 'fulfilled' || o.status === 'open').length;
   const openOrdersCount = allOrders.filter(o => o.status === 'open').length;
