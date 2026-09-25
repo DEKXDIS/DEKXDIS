@@ -1,4 +1,5 @@
 import React from 'react';
+import { useFreshTimestamp } from '../hooks/useFreshTimestamp';
 import { calculateTradeMetrics } from '../utils/tradeMetrics';
 import { 
   TrendingUp, 
@@ -33,7 +34,8 @@ export const TradeMetrics: React.FC<TradeMetricsProps> = ({
   walletTradeCard,
 }) => {
   const tokenSymbol = selectedToken?.symbol || selectedTokenSymbol;
-  const metrics = selectedToken ? calculateTradeMetrics(orders, { ...selectedToken, chainId: selectedChainId || selectedToken.chainId }, marketPrice.price) : null;
+  const priceFresh = useFreshTimestamp(marketPrice.lastUpdated);
+  const metrics = selectedToken ? calculateTradeMetrics(orders, { ...selectedToken, chainId: selectedChainId || selectedToken.chainId }, priceFresh ? marketPrice.price : 0) : null;
   const totalVolumeUsdt = metrics?.volume || 0;
   const totalTrades = metrics?.totalTrades || 0;
   const buyOrders = { length: metrics?.buys || 0 };

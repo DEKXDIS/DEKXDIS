@@ -4,8 +4,9 @@ import { nativeStore } from '../../services/nativeStore';
 import { storageService } from '../../services/storageService';
 import { systemLogService } from '../../services/systemLogService';
 
-export function WalletCreationPanel({ wallet, onOpenWalletSetup }: {
+export function WalletCreationPanel({ wallet, onOpenWalletSetup, onSwitchWallet }: {
   onOpenWalletSetup: () => void;
+  onSwitchWallet: (address: string) => Promise<void>;
   wallet: WalletState | null;
 }) {
   const [wallets, setWallets] = useState<WalletState[]>([]);
@@ -13,6 +14,24 @@ export function WalletCreationPanel({ wallet, onOpenWalletSetup }: {
   const [message, setMessage] = useState('');
   const [nicknameDrafts, setNicknameDrafts] = useState<Record<string, string>>({});
   const operation = useRef(false);
+  const [busyMessage, setBusyMessage] = useState('');
+
+  const switchWallet = async (address: string) => {
+    if (operation.current) return;
+    operation.current = true;
+    setBusy(true);
+    setBusyMessage('Switching wallet…');
+    setMessage('');
+    try {
+      await onSwitchWallet(address);
+      setMessage('Wallet activated.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      operation.current = false;
+      setBusy(false);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -33,6 +52,7 @@ export function WalletCreationPanel({ wallet, onOpenWalletSetup }: {
     if (operation.current) return;
     operation.current = true;
     setBusy(true);
+    setBusyMessage('Saving nickname…');
     setMessage('');
     try {
       const key = address.toLowerCase();
@@ -64,6 +84,7 @@ export function WalletCreationPanel({ wallet, onOpenWalletSetup }: {
           <div className="flex items-start gap-2 mb-2">
             <span className="min-w-0 break-all text-[10px] text-slate-400">{savedWallet.address}</span>
             {key === wallet?.address.toLowerCase() && <span className="shrink-0 text-[10px] text-theme-primary">Active</span>}
+            {key !== wallet?.address.toLowerCase() && <button type="button" className={`${button} shrink-0 ml-auto`} disabled={busy} onClick={() => void switchWallet(savedWallet.address)}>Activate</button>}
           </div>
           <div className="flex items-center gap-2">
             <input
@@ -80,6 +101,6 @@ export function WalletCreationPanel({ wallet, onOpenWalletSetup }: {
         </div>;
       })}
     </div>
-    {(busy || message) && <p role="status" className="shrink-0 text-[10px] text-slate-300 break-words">{busy ? 'Saving nickname…' : message}</p>}
+    {(busy || message) && <p role="status" className="shrink-0 text-[10px] text-slate-300 break-words">{busy ? busyMessage : message}</p>}
   </section>;
 }

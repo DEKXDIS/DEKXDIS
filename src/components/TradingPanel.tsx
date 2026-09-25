@@ -1,4 +1,7 @@
 import { useTradingQuotePrice } from '../hooks/useTradingQuotePrice';
+import { useFreshTimestamp } from '../hooks/useFreshTimestamp';
+import { useOrderSubmission } from '../hooks/useOrderSubmission';
+import { SubmissionFeedback } from './SubmissionFeedback';
 import { assertTradingPair, tradingQuoteUsdPrice } from '../services/tradingQuote';
 import { storageService } from '../services/storageService';
 import { exclusive } from '../services/executionEngine';
@@ -78,11 +81,13 @@ export const TradingPanel: React.FC<TradingPanelProps> = ({
   const [isExecutingTokenTrade, setIsExecutingTokenTrade] = useState(false);
   const [isExecutingUsdtTrade, setIsExecutingUsdtTrade] = useState(false);
   const [executionStep, setExecutionStep] = useState<string>('');
+  const submission = useOrderSubmission(wallet?.address, chainId, selectedToken.address, isExecutingTokenTrade || isExecutingUsdtTrade);
 
   const tradeBusy = React.useRef(false);
   const tokenRequest = React.useRef(0);
   const usdtRequest = React.useRef(0);
-  const livePrice = Number.isFinite(marketPrice.price) && Date.now() - marketPrice.lastUpdated < 30000 ? marketPrice.price : 0;
+  const priceFresh = useFreshTimestamp(marketPrice.lastUpdated);
+  const livePrice = Number.isFinite(marketPrice.price) && priceFresh ? marketPrice.price : 0;
 
   const formatButtonUsd = (val: string): string => {
     return formatUsdDisplay(val || 0);
@@ -210,8 +215,8 @@ export const TradingPanel: React.FC<TradingPanelProps> = ({
 
   // Execute Trade: Token -> wrapped native
   const handleTradeTokenToUsdt = async () => {
-    if (tradeBusy.current) return;
-    if (!validSlippage) { systemLogService.logWarning('SWAP', 'Invalid Slippage', 'Enter a percentage from 0 to less than 100.', chainId); return; }
+    if (tradeBusy.current || submission.blocked) return;
+    if (!validSlippage) { submission.onError(new Error('Enter a slippage percentage from 0 to less than 100.')); systemLogService.logWarning('SWAP', 'Invalid Slippage', 'Enter a percentage from 0 to less than 100.', chainId); return; }
     if (!wallet) {
       onRequireWallet();
       return;
@@ -227,11 +232,13 @@ export const TradingPanel: React.FC<TradingPanelProps> = ({
     if (!tokenSellAmt || tokenSellAmt <= 0) return;
 
     if (tokenRawBal < tokenSellAmt) {
+      submission.onError(new Error(`Insufficient ${tokenSymbol} balance. Available: ${formatTokenDisplay(tokenRawBal)} ${tokenSymbol}.`));
       systemLogService.logWarning('SWAP', `Insufficient ${tokenSymbol} Balance`, `You have $${tokenUsdBal} USD / ${formatTokenDisplay(tokenRawBal)} ${tokenSymbol}.`, chainId);
       return;
     }
 
     setIsExecutingTokenTrade(true);
+    submission.clear();
     tradeBusy.current = true;
     setExecutionStep('Preparing...');
 
@@ -293,6 +300,7 @@ export const TradingPanel: React.FC<TradingPanelProps> = ({
       onRefreshBalances();
       });
     } catch (error: any) {
+      submission.onError(error);
       systemLogService.logError(
         'SWAP',
         `Trade Failed: ${tokenSymbol} → ${quoteToken.symbol}`,
@@ -308,8 +316,8 @@ export const TradingPanel: React.FC<TradingPanelProps> = ({
 
   // Execute Trade: wrapped native -> Token
   const handleTradeUsdtToToken = async () => {
-    if (tradeBusy.current) return;
-    if (!validSlippage) { systemLogService.logWarning('SWAP', 'Invalid Slippage', 'Enter a percentage from 0 to less than 100.', chainId); return; }
+    if (tradeBusy.current || submission.blocked) return;
+    if (!validSlippage) { submission.onError(new Error('Enter a slippage percentage from 0 to less than 100.')); systemLogService.logWarning('SWAP', 'Invalid Slippage', 'Enter a percentage from 0 to less than 100.', chainId); return; }
     if (!wallet) {
       onRequireWallet();
       return;
@@ -325,6 +333,7 @@ export const TradingPanel: React.FC<TradingPanelProps> = ({
 
 
     setIsExecutingUsdtTrade(true);
+    submission.clear();
     tradeBusy.current = true;
     setExecutionStep('Preparing...');
 
@@ -391,6 +400,7 @@ export const TradingPanel: React.FC<TradingPanelProps> = ({
       onRefreshBalances();
       });
     } catch (error: any) {
+      submission.onError(error);
       systemLogService.logError(
         'SWAP',
         `Trade Failed: ${quoteToken.symbol} → ${tokenSymbol}`,
@@ -461,7 +471,7 @@ export const TradingPanel: React.FC<TradingPanelProps> = ({
           </div>
         </div>
         <div className="flex items-center gap-2 text-[10px] text-slate-400 font-mono">
-          <span>1 {tokenSymbol} ≈ ${formatTokenDisplay(livePrice)}</span>
+          <span>{livePrice > 0 ? `1 ${tokenSymbol} ≈ $${formatTokenDisplay(livePrice)}` : `${tokenSymbol} price unavailable`}</span>
           <span>|</span>
           <label className="flex items-center gap-1" title="Minimum received tolerance. Uses the same setting as Settings.">
             Slippage
@@ -479,6 +489,7 @@ export const TradingPanel: React.FC<TradingPanelProps> = ({
       </div>
 
       {(selfPair || quotePriceError) && <div className="text-xs text-rose-400">{selfPair ? 'Select a token other than the wrapped native trading asset.' : quotePriceError}</div>}
+      <SubmissionFeedback submission={submission} onStartAnother={() => { setTokenUsdAmount('0'); setUsdtAmount('0'); setTokenMaxSelected(false); setUsdtMaxSelected(false); }} />
       {/* BOTH TRADE BOXES (USD-FIRST DISPLAY & ENTRY) */}
       <div className={embedded ? 'wallet-trade-columns grid gap-2.5' : 'grid grid-cols-1 md:grid-cols-2 gap-2.5 flex-1 min-h-0'}>
         
@@ -579,7 +590,7 @@ export const TradingPanel: React.FC<TradingPanelProps> = ({
           {/* BUTTON 1: SELL TOKEN */}
           <button
             onClick={handleTradeTokenToUsdt}
-            disabled={!validSlippage || selfPair || quotePrice <= 0 || isExecutingUsdtTrade || livePrice <= 0 || balances.isLoading || isExecutingTokenTrade || !tokenUsdAmount || parseFloat(tokenUsdAmount) <= 0}
+            disabled={submission.blocked || !validSlippage || selfPair || quotePrice <= 0 || isExecutingUsdtTrade || livePrice <= 0 || balances.isLoading || isExecutingTokenTrade || !tokenUsdAmount || parseFloat(tokenUsdAmount) <= 0}
             className="btn-tactile w-full py-2.5 rounded-xl bg-theme-gradient-reverse text-white font-extrabold text-xs tracking-wide flex items-center justify-center gap-1.5 transition-all shadow-glow-secondary disabled:opacity-50 disabled:cursor-not-allowed uppercase shrink-0 cursor-pointer"
           >
             {isExecutingTokenTrade ? (
@@ -693,7 +704,7 @@ export const TradingPanel: React.FC<TradingPanelProps> = ({
           {/* BUTTON 2: BUY TOKEN */}
           <button
             onClick={handleTradeUsdtToToken}
-            disabled={!validSlippage || selfPair || quotePrice <= 0 || isExecutingTokenTrade || isExecutingUsdtTrade || !usdtAmount || parseFloat(usdtAmount) <= 0}
+            disabled={submission.blocked || !validSlippage || selfPair || quotePrice <= 0 || isExecutingTokenTrade || isExecutingUsdtTrade || !usdtAmount || parseFloat(usdtAmount) <= 0}
             className="btn-tactile w-full py-2.5 rounded-xl bg-theme-gradient text-slate-950 font-extrabold text-xs tracking-wide flex items-center justify-center gap-1.5 transition-all shadow-glow-primary disabled:opacity-50 disabled:cursor-not-allowed uppercase shrink-0 cursor-pointer"
           >
             {isExecutingUsdtTrade ? (

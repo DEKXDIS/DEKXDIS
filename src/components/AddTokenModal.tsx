@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import { ModalDialog } from './ModalDialog';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   X, 
   Search, 
@@ -51,9 +52,23 @@ export const AddTokenModal: React.FC<AddTokenModalProps> = ({
   const [securityReport, setSecurityReport] = useState<TokenSecurityReport | null>(null);
   const [liquidityReport, setLiquidityReport] = useState<TokenLiquidityReport | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const inspectionId = useRef(0);
+
+  const clearInspection = () => {
+    inspectionId.current += 1;
+    setResolvedToken(null);
+    setSecurityReport(null);
+    setLiquidityReport(null);
+    setAutoDetectedChain(null);
+    setError(null);
+    setIsInspecting(false);
+    setIsScanningSecurity(false);
+    setIsScanningLiquidity(false);
+  };
 
   // Reset/sync initial chain ID when modal opens
   useEffect(() => {
+    clearInspection();
     if (isOpen) {
       setTargetChainId(chainId);
       setAddressInput('');
@@ -63,41 +78,44 @@ export const AddTokenModal: React.FC<AddTokenModalProps> = ({
       setAutoDetectedChain(null);
       setError(null);
     }
+    return () => { inspectionId.current += 1; };
   }, [isOpen, chainId]);
 
   if (!isOpen) return null;
 
   const currentChainConfig = getChainConfig(targetChainId);
 
-  const fetchAuditsForToken = (address: string, cId: number) => {
+  const fetchAuditsForToken = (address: string, cId: number, requestId: number) => {
     // 1. GoPlus Security Scan
     setIsScanningSecurity(true);
     goPlusSecurityService.checkTokenSecurity(address, cId)
       .then((rep) => {
-        setSecurityReport(rep);
+        if (inspectionId.current === requestId) setSecurityReport(rep);
       })
       .catch((err) => {
         systemLogService.logWarning('SECURITY', `Token Security Check Warning`, err?.message || String(err), cId);
       })
       .finally(() => {
-        setIsScanningSecurity(false);
+        if (inspectionId.current === requestId) setIsScanningSecurity(false);
       });
 
     // 2. DEX Liquidity Scan
     setIsScanningLiquidity(true);
     dexLiquidityService.fetchTokenLiquidity(address, cId)
       .then((liq) => {
-        setLiquidityReport(liq);
+        if (inspectionId.current === requestId) setLiquidityReport(liq);
       })
       .catch((err) => {
         systemLogService.logWarning('NETWORK', `DEX Liquidity Check Warning`, err?.message || String(err), cId);
       })
       .finally(() => {
-        setIsScanningLiquidity(false);
+        if (inspectionId.current === requestId) setIsScanningLiquidity(false);
       });
   };
 
-  const handleInspect = async () => {
+  const handleInspect = async (selectedChainId = targetChainId, allowAutoDetect = true) => {
+    clearInspection();
+    const requestId = inspectionId.current;
     const clean = addressInput.trim();
     if (!clean || !clean.startsWith('0x') || clean.length !== 42) {
       setError('Error [ERR_INVALID_ADDRESS]: Please enter a valid 42-character EVM contract address starting with 0x.');
@@ -114,15 +132,15 @@ export const AddTokenModal: React.FC<AddTokenModalProps> = ({
     try {
       // 1. Check selected target chain first
       let foundMeta: TokenConfig | null = null;
-      let effectiveChainId = targetChainId;
+      let effectiveChainId = selectedChainId;
 
       // Check Binance Alpha catalog on target chain
-      const cachedAlpha = marketDataService.getAlphaTokenByAddress(clean, targetChainId);
+      const cachedAlpha = marketDataService.getAlphaTokenByAddress(clean, selectedChainId);
       if (cachedAlpha) {
         foundMeta = cachedAlpha;
       } else {
         try {
-          const alphas = await marketDataService.fetchBinanceAlphaTokens(targetChainId);
+          const alphas = await marketDataService.fetchBinanceAlphaTokens(selectedChainId);
           const liveAlpha = alphas.find((a) => a.address.toLowerCase() === clean.toLowerCase());
           if (liveAlpha) foundMeta = liveAlpha;
         } catch (alphaErr: any) {
@@ -133,7 +151,7 @@ export const AddTokenModal: React.FC<AddTokenModalProps> = ({
       // Check RPC for target chain
       if (!foundMeta) {
         try {
-          const meta = await web3Service.getTokenMetadata(clean, targetChainId);
+          const meta = await web3Service.getTokenMetadata(clean, selectedChainId);
           if (meta) foundMeta = meta;
         } catch (metaErr: any) {
           console.warn(`RPC metadata query note for ${clean}:`, metaErr?.message || metaErr);
@@ -141,7 +159,7 @@ export const AddTokenModal: React.FC<AddTokenModalProps> = ({
       }
 
       // 2. If not found on target chain, probe ALL 5 chains concurrently with Promise.all
-      if (!foundMeta) {
+      if (!foundMeta && allowAutoDetect) {
         const allChains = Object.values(SUPPORTED_CHAINS);
         
         const probeResults = await Promise.all(
@@ -161,6 +179,7 @@ export const AddTokenModal: React.FC<AddTokenModalProps> = ({
           })
         );
 
+        if (inspectionId.current !== requestId) return;
         const match = probeResults.find((r) => r !== null);
         if (match) {
           foundMeta = match.meta;
@@ -170,24 +189,25 @@ export const AddTokenModal: React.FC<AddTokenModalProps> = ({
         }
       }
 
+      if (inspectionId.current !== requestId) return;
       if (!foundMeta) {
         throw new Error(
-          `Error [ERR_NOT_FOUND]: Contract ${clean} was not found or does not implement standard ERC-20 symbol/decimals on ${currentChainConfig.name} or any other supported network (BSC, Ethereum, Arbitrum, Base, Gnosis). Please verify the address and try again.`
+          `Error [ERR_NOT_FOUND]: Contract ${clean} was not found or does not implement standard ERC-20 symbol/decimals on ${getChainConfig(selectedChainId).name}${allowAutoDetect ? ' or any other supported network' : ''}. Please verify the address and try again.`
         );
       }
 
-      setResolvedToken(foundMeta);
-      fetchAuditsForToken(clean, effectiveChainId);
+      setResolvedToken({ ...foundMeta, address: clean, chainId: effectiveChainId });
+      fetchAuditsForToken(clean, effectiveChainId, requestId);
     } catch (err: any) {
       systemLogService.logWarning('WALLET', `Token Inspection Failed: ${clean}`, err?.message || String(err), targetChainId);
-      setError(err.message || 'Error [ERR_INSPECT_FAILED]: Failed to inspect token contract.');
+      if (inspectionId.current === requestId) setError(err.message || 'Error [ERR_INSPECT_FAILED]: Failed to inspect token contract.');
     } finally {
-      setIsInspecting(false);
+      if (inspectionId.current === requestId) setIsInspecting(false);
     }
   };
 
   const handleImport = () => {
-    if (!resolvedToken) return;
+    if (!resolvedToken || isInspecting || resolvedToken.chainId !== targetChainId || resolvedToken.address.toLowerCase() !== addressInput.trim().toLowerCase()) return;
     const finalToken: TokenConfig = {
       ...resolvedToken,
       chainId: targetChainId,
@@ -204,6 +224,7 @@ export const AddTokenModal: React.FC<AddTokenModalProps> = ({
   };
 
   const handleClose = () => {
+    clearInspection();
     setAddressInput('');
     setResolvedToken(null);
     setSecurityReport(null);
@@ -214,6 +235,7 @@ export const AddTokenModal: React.FC<AddTokenModalProps> = ({
   };
 
   return (
+    <ModalDialog label="Import token" onClose={handleClose} busy={false}>
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-150">
       <div 
         className="w-full max-w-xl bg-slate-900 border border-slate-800 rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
@@ -235,7 +257,7 @@ export const AddTokenModal: React.FC<AddTokenModalProps> = ({
             </div>
           </div>
           <button
-            onClick={handleClose}
+            aria-label="Close" disabled={false} onClick={handleClose}
             className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 rounded-lg transition-colors"
           >
             <X className="w-4 h-4" />
@@ -263,10 +285,8 @@ export const AddTokenModal: React.FC<AddTokenModalProps> = ({
                   type="button"
                   onClick={() => {
                     setTargetChainId(c.chainId);
-                    setAutoDetectedChain(null);
-                    if (addressInput.trim().length === 42 && resolvedToken) {
-                      setTimeout(() => handleInspect(), 50);
-                    }
+                    clearInspection();
+                    if (addressInput.trim().length === 42) void handleInspect(c.chainId, false);
                   }}
                   className={`px-2 py-1.5 rounded-lg text-xs font-medium border transition-all text-center ${
                     targetChainId === c.chainId
@@ -292,8 +312,7 @@ export const AddTokenModal: React.FC<AddTokenModalProps> = ({
                   value={addressInput}
                   onChange={(e) => {
                     setAddressInput(e.target.value);
-                    setError(null);
-                    setAutoDetectedChain(null);
+                    clearInspection();
                   }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') handleInspect();
@@ -303,7 +322,7 @@ export const AddTokenModal: React.FC<AddTokenModalProps> = ({
                 />
               </div>
               <button
-                onClick={handleInspect}
+                onClick={() => void handleInspect()}
                 disabled={isInspecting || !addressInput.trim()}
                 className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-medium rounded-lg transition-colors flex items-center space-x-1.5 shrink-0"
               >
@@ -340,7 +359,7 @@ export const AddTokenModal: React.FC<AddTokenModalProps> = ({
                 <span>{error}</span>
               </div>
               <button
-                onClick={handleInspect}
+                onClick={() => void handleInspect()}
                 className="px-2.5 py-1 bg-red-500/20 hover:bg-red-500/30 text-red-200 rounded text-[11px] font-medium shrink-0 flex items-center gap-1"
               >
                 <RefreshCw className="w-3 h-3" />
@@ -643,5 +662,6 @@ export const AddTokenModal: React.FC<AddTokenModalProps> = ({
         </div>
       </div>
     </div>
+    </ModalDialog>
   );
 };

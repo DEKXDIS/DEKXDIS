@@ -13,6 +13,7 @@ import {
   Lock
 } from 'lucide-react';
 import { WalletState, WalletValuation, Balances, AllowanceState, MarketPrice, TokenConfig } from '../types/trading';
+import { useFreshTimestamp } from '../hooks/useFreshTimestamp';
 import { getChainConfig, DEFAULT_CHAIN_ID } from '../types/chains';
 import { formatAssetDisplay, formatTokenDisplay, formatUsdDisplay } from '../utils/displayFormat';
 
@@ -69,16 +70,18 @@ export const WalletCard: React.FC<WalletCardProps> = ({
   const effectiveNativePrice = (nativePrice && nativePrice > 0) ? nativePrice : 0;
   const nativeBal = parseFloat(balances.bnb || '0');
   const wrappedBal = parseFloat(balances.wbnb || '0');
-  const nativeUsd = effectiveNativePrice > 0 ? (nativeBal * effectiveNativePrice).toFixed(2) : '0.00';
-  const wrappedUsd = effectiveNativePrice > 0 ? (wrappedBal * effectiveNativePrice).toFixed(2) : '0.00';
+  const nativeUsd = nativeBal === 0 ? '0.00' : effectiveNativePrice > 0 ? (nativeBal * effectiveNativePrice).toFixed(2) : undefined;
+  const wrappedUsd = wrappedBal === 0 ? '0.00' : effectiveNativePrice > 0 ? (wrappedBal * effectiveNativePrice).toFixed(2) : undefined;
 
   const nativeSymbol = chainConfig.nativeToken.symbol;
   const wrappedSymbol = chainConfig.nativeToken.wrappedSymbol;
   const usdtSymbol = chainConfig.usdtToken.symbol;
   const valuation = walletValuation?.chainId === chainId && walletValuation.ownerAddress.toLowerCase() === wallet?.address.toLowerCase() ? walletValuation : undefined;
   const total = valuation?.totalUsdValue;
+  const valuationFresh = useFreshTimestamp(valuation?.updatedAt, 60000);
+  const valuationStale = !!valuation?.error || !!balances.error || !valuationFresh;
   const validTotal = total !== undefined && /^\d+(\.\d+)?$/.test(total) && Number.isFinite(Number(total));
-  const stablePrice = valuation?.tokenPricesUsd?.[chainConfig.usdtToken.address.toLowerCase()];
+  const stablePrice = !valuationStale ? valuation?.tokenPricesUsd?.[chainConfig.usdtToken.address.toLowerCase()] : undefined;
   const stableUsd = Number(balances.usdt) === 0 ? 0 : stablePrice !== undefined ? Number(balances.usdt) * stablePrice : undefined;
 
   if (!wallet) {
@@ -201,6 +204,9 @@ export const WalletCard: React.FC<WalletCardProps> = ({
           </span>
           <span className="text-base font-bold font-mono text-theme-primary">
             {validTotal ? `$${formatUsdDisplay(total)} USD` : 'Unavailable'}
+            {valuationStale && <span className="block text-[10px] font-normal text-amber-300" title={valuation?.error}>
+              {validTotal ? 'Last known · stale' : 'Value unavailable'} · <button type="button" className="underline" disabled={balances.isLoading} onClick={onRefreshBalances}>Retry</button>
+            </span>}
           </span>
         </div>
 
@@ -218,7 +224,7 @@ export const WalletCard: React.FC<WalletCardProps> = ({
               </div>
             </div>
             <div className="text-right flex items-center gap-2">
-              <span className="font-bold font-mono text-slate-100 text-xs block">${nativeUsd} USD</span>
+              <span className="font-bold font-mono text-slate-100 text-xs block">{nativeUsd !== undefined ? `$${nativeUsd} USD` : 'USD unavailable'}</span>
               <button
                 onClick={onOpenWrapModal}
                 className="btn-tactile px-2 py-0.5 rounded bg-theme-primary-10 hover:bg-theme-primary-20 border border-theme-primary-30 text-[10px] text-theme-primary font-medium inline-flex items-center gap-1 cursor-pointer transition-colors"
@@ -240,7 +246,7 @@ export const WalletCard: React.FC<WalletCardProps> = ({
               </div>
             </div>
             <div className="text-right flex items-center gap-2">
-              <span className="font-bold font-mono text-slate-100 text-xs block">${wrappedUsd} USD</span>
+              <span className="font-bold font-mono text-slate-100 text-xs block">{wrappedUsd !== undefined ? `$${wrappedUsd} USD` : 'USD unavailable'}</span>
               <button
                 onClick={onOpenWrapModal}
                 className="btn-tactile px-2 py-0.5 rounded bg-theme-secondary-10 hover:bg-theme-secondary-20 border border-theme-secondary-30 text-[10px] text-theme-secondary font-medium inline-flex items-center gap-1 cursor-pointer transition-colors"

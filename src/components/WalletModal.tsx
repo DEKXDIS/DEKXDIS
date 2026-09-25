@@ -1,6 +1,7 @@
 import { nativeStore } from '../services/nativeStore';
 import { systemLogService } from '../services/systemLogService';
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import { containDialogFocus } from './ModalDialog';
 import { 
   X, 
   Key, 
@@ -57,10 +58,11 @@ export const WalletModal: React.FC<WalletModalProps> = ({
   const revealGeneration = useRef(0);
   useEffect(() => { revealGeneration.current++; setSecret(null); setShowKey(false); return () => { revealGeneration.current++; }; }, [isOpen, tab, wallet?.address]);
   useEffect(() => { setTab(needsBackup ? 'export' : initialMode); setSecret(null); setShowKey(false); setImportInput(''); setImportError(null); setBackupSuffix(''); setHasRevealed(false); }, [isOpen, initialMode, wallet?.address, needsBackup]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const dialog = dialogRef.current;
     if (isOpen && dialog && !dialog.open) dialog.showModal();
     if (!isOpen && dialog?.open) dialog.close();
+    return () => { if (dialog?.open) dialog.close(); };
   }, [isOpen]);
   useEffect(() => {
     if (!secret) return;
@@ -128,6 +130,7 @@ export const WalletModal: React.FC<WalletModalProps> = ({
 
   return (
     <dialog ref={dialogRef} aria-labelledby="wallet-dialog-title"
+      onKeyDown={containDialogFocus}
       onCancel={event => { if (needsBackup || busy) event.preventDefault(); else onClose(); }}
       className="m-auto p-0 bg-transparent text-slate-200 w-[calc(100%-2rem)] max-w-lg backdrop:bg-black/80 backdrop:backdrop-blur-sm select-text">
       <div className="bg-surface border border-surface-border rounded-2xl w-full shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">

@@ -1,3 +1,4 @@
+import { ModalDialog } from './ModalDialog';
 import { exclusive } from '../services/executionEngine';
 import React, { useState } from 'react';
 import { X, ArrowRightLeft, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
@@ -14,6 +15,7 @@ interface WrapModalProps {
   chainId?: number;
   nativePrice?: number;
   onRefreshBalances: () => void;
+  onRefreshPrice?: () => void;
 }
 
 export const WrapModal: React.FC<WrapModalProps> = ({
@@ -24,6 +26,7 @@ export const WrapModal: React.FC<WrapModalProps> = ({
   chainId = DEFAULT_CHAIN_ID,
   nativePrice,
   onRefreshBalances,
+  onRefreshPrice,
 }) => {
   const [direction, setDirection] = useState<'WRAP' | 'UNWRAP'>('WRAP');
   const [usdAmount, setUsdAmount] = useState('25');
@@ -90,8 +93,9 @@ export const WrapModal: React.FC<WrapModalProps> = ({
   };
 
   return (
+    <ModalDialog label="Wrap or unwrap tokens" onClose={onClose} busy={isLoading}>
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-150 select-text">
-      <div className="bg-surface border border-surface-border rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
+      <div className="bg-surface border border-surface-border rounded-2xl w-full max-w-md shadow-2xl overflow-y-auto max-h-[92vh]">
         
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-surface-border bg-surface-hover/30">
@@ -104,12 +108,12 @@ export const WrapModal: React.FC<WrapModalProps> = ({
                 {isWrap ? `Wrap ${nativeSymbol} → ${wrappedSymbol}` : `Unwrap ${wrappedSymbol} → ${nativeSymbol}`}
               </h3>
               <p className="text-[11px] text-slate-400 font-mono">
-                1 {nativeSymbol} ≈ ${formatTokenDisplay(effectiveNativePrice)} USD
+                {effectiveNativePrice > 0 ? `1 ${nativeSymbol} ≈ $${formatTokenDisplay(effectiveNativePrice)} USD` : 'Current USD price unavailable'}
               </p>
             </div>
           </div>
           <button
-            onClick={onClose}
+            aria-label="Close" disabled={isLoading} onClick={onClose}
             className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-surface-border transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
@@ -205,6 +209,10 @@ export const WrapModal: React.FC<WrapModalProps> = ({
           </div>
 
           {/* Status Messages */}
+          {effectiveNativePrice <= 0 && <p role="status" className="text-xs text-amber-300">
+            Refresh the USD price before entering an amount.
+            {onRefreshPrice && <button type="button" className="ml-1 underline" onClick={onRefreshPrice}>Refresh price</button>}
+          </p>}
           {error && (
             <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300 flex items-center gap-2">
               <AlertCircle className="w-4 h-4 shrink-0" />
@@ -227,7 +235,7 @@ export const WrapModal: React.FC<WrapModalProps> = ({
           {/* Submit Button */}
           <button
             onClick={handleExecute}
-            disabled={isLoading || !usdAmount || parseFloat(usdAmount) <= 0}
+            disabled={isLoading || effectiveNativePrice <= 0 || !usdAmount || parseFloat(usdAmount) <= 0}
             className="btn-tactile w-full py-3.5 rounded-xl bg-theme-gradient text-slate-950 font-extrabold text-sm transition-all shadow-glow-primary disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
           >
             {isLoading ? (
@@ -244,5 +252,6 @@ export const WrapModal: React.FC<WrapModalProps> = ({
 
       </div>
     </div>
+    </ModalDialog>
   );
 };

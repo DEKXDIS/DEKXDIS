@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Minus, Square, Maximize2 } from 'lucide-react';
+import { fitWindowToBounds } from '../utils/windowBounds';
 
 export interface WindowLayout {
   id: string;
@@ -44,7 +45,7 @@ export const DraggableResizableWindow: React.FC<DraggableResizableWindowProps> =
     zIndex,
     isMinimized = false,
     isMaximized = false,
-  } = layout;
+  } = fitWindowToBounds(layout, containerBounds);
 
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState<string | null>(null);
@@ -101,8 +102,8 @@ export const DraggableResizableWindow: React.FC<DraggableResizableWindowProps> =
       let newY = dragStartRef.current.startY + deltaY;
 
       if (containerBounds) {
-        newX = Math.max(0, Math.min(newX, containerBounds.width - 80));
-        newY = Math.max(0, Math.min(newY, containerBounds.height - 40));
+        newX = Math.max(0, Math.min(newX, containerBounds.width - width));
+        newY = Math.max(0, Math.min(newY, containerBounds.height - (isMinimized ? 40 : height)));
       } else {
         newX = Math.max(0, newX);
         newY = Math.max(0, newY);
@@ -146,7 +147,7 @@ export const DraggableResizableWindow: React.FC<DraggableResizableWindowProps> =
         height: newHeight,
       });
     }
-  }, [isDragging, isResizing, containerBounds, id, minWidth, minHeight, onUpdateLayout]);
+  }, [isDragging, isResizing, containerBounds, id, minWidth, minHeight, onUpdateLayout, width, height, isMinimized]);
 
   const handlePointerUp = useCallback(() => {
     setIsDragging(false);

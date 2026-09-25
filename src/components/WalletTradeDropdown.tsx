@@ -4,6 +4,7 @@ import { getChainConfig, getTradingQuoteToken } from '../types/chains';
 import type { OrderFundingSnapshot } from '../utils/orderFunding';
 import type { TokenConfig, WalletValuation } from '../types/trading';
 import { formatTokenDisplay, formatUsdDisplay } from '../utils/displayFormat';
+import { useFreshTimestamp } from '../hooks/useFreshTimestamp';
 
 export interface WalletTradeDropdownProps {
   chainId: number;
@@ -13,6 +14,7 @@ export interface WalletTradeDropdownProps {
   selectedToken?: TokenConfig;
   tokenPriceSnapshot?: { chainId: number; address: string; price: number; timestamp: number };
   walletValuation?: WalletValuation;
+  onRefreshBalances: () => void;
   isWorkspaceActive: boolean;
   isModalOpen: boolean;
   children: React.ReactNode;
@@ -21,7 +23,7 @@ export interface WalletTradeDropdownProps {
 /** Visibility never unmounts the trade form or interrupts an operation. */
 export const WalletTradeDropdown: React.FC<WalletTradeDropdownProps> = ({
   chainId, walletAddress, balanceSnapshot, nativePriceSnapshot,
-  selectedToken, tokenPriceSnapshot, walletValuation,
+  selectedToken, tokenPriceSnapshot, walletValuation, onRefreshBalances,
   isWorkspaceActive, isModalOpen, children,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -116,6 +118,8 @@ export const WalletTradeDropdown: React.FC<WalletTradeDropdownProps> = ({
   const valuation = walletAddress && walletValuation?.chainId === chainId &&
     walletValuation.ownerAddress.toLowerCase() === walletAddress.toLowerCase() ? walletValuation : undefined;
   const total = valuation?.totalUsdValue;
+  const valuationFresh = useFreshTimestamp(valuation?.updatedAt, 60000);
+  const valuationStale = !!valuation?.error || !!snapshot?.balances.error || !valuationFresh;
   const totalAvailable = total !== undefined && /^\d+(\.\d+)?$/.test(total) && Number.isFinite(Number(total));
   const showSelected = selected && selected.address.toLowerCase() !== token.address.toLowerCase();
 
@@ -144,6 +148,9 @@ export const WalletTradeDropdown: React.FC<WalletTradeDropdownProps> = ({
           title={`Includes native, wrapped native, ${chain.usdtToken.symbol}, and tokens tracked on ${chain.name}.`}>
           <span className="text-slate-400 uppercase tracking-wider block">Wallet total</span>
           <span className="text-xs font-bold font-mono text-theme-primary block">{totalAvailable ? `$${formatUsdDisplay(total)} USD` : 'Unavailable'}</span>
+          {valuationStale && <span className="text-amber-300 block" title={valuation?.error}>
+            {totalAvailable ? 'Last known · stale' : 'Value unavailable'} · <button type="button" className="underline" onClick={onRefreshBalances}>Retry</button>
+          </span>}
         </div>}
       </div>
       <button ref={buttonRef} type="button" aria-expanded={visible} aria-controls={panelId}

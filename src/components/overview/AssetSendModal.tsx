@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { containDialogFocus } from '../ModalDialog';
 import { ethers } from 'ethers';
 import { Send, X, Loader2 } from 'lucide-react';
 import { assetSendService, AssetSendRecord, AssetSendReview, SendAsset } from '../../services/assetSendService';
@@ -84,6 +85,7 @@ export function AssetSendModal({ from, asset, displayPrice, onClose, onRefresh }
   const amount = review ? ethers.formatUnits(review.amountRaw, asset.decimals) : undefined;
   const estimate = review?.amountUsd ?? (amount && displayPrice && displayPrice > 0 ? Number(amount) * displayPrice : undefined);
   return createPortal(<dialog ref={dialog} aria-labelledby="asset-send-title"
+    onKeyDown={containDialogFocus}
     onCancel={event => { event.preventDefault(); if (busy !== 'send') close(); }}
     onPointerDown={event => event.stopPropagation()}
     className="m-auto w-[calc(100%-2rem)] max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl border border-surface-border bg-surface p-5 text-slate-100 shadow-2xl backdrop:bg-black/80 select-text">

@@ -1,3 +1,4 @@
+import { ModalDialog } from './ModalDialog';
 import React, { useState, useEffect } from 'react';
 import { BetaAccess } from './BetaAccess';
 import { 
@@ -123,6 +124,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const activePreset = RPC_PROVIDER_PRESETS.find(p => p.id === selectedProvider);
 
   return (
+    <ModalDialog label="Settings" onClose={onClose} busy={false}>
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-150 select-text">
       <div className="bg-surface border border-surface-border rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
         
@@ -133,7 +135,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <h3 className="font-bold text-base text-white">Terminal Settings</h3>
           </div>
           <button
-            onClick={onClose}
+            aria-label="Close" disabled={false} onClick={onClose}
             className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-surface-border transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
@@ -501,6 +503,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
       </div>
     </div>
+    </ModalDialog>
   );
 };
 

@@ -20,6 +20,7 @@ import { AssetMatrixWindow } from './overview/AssetMatrixWindow';
 import { WalletCreationPanel } from './overview/WalletCreationPanel';
 import { SystemLogWindow } from './overview/SystemLogWindow';
 import { calculateOverallRealizedPnl } from '../utils/tradeMetrics';
+import { SUPPORTED_CHAINS } from '../types/chains';
 
 import { 
   DollarSign, 
@@ -33,6 +34,7 @@ import {
 } from 'lucide-react';
 
 interface OverviewDashboardProps {
+  onSwitchWallet: (address: string) => Promise<void>;
   onOpenWalletSetup: () => void;
   wallet: WalletState | null;
   selectedChainId: number;
@@ -50,6 +52,7 @@ interface OverviewDashboardProps {
 }
 
 export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
+  onSwitchWallet,
   onOpenWalletSetup,
   wallet,
   selectedChainId,
@@ -75,6 +78,8 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
   const [chainBalances, setChainBalances] = useState<Record<number, ChainBalanceReport>>({});
   const [isLoadingBalances, setIsLoadingBalances] = useState<boolean>(true);
   const [balanceError, setBalanceError] = useState('');
+  const balanceGeneration = useRef(0);
+  const balanceInFlight = useRef(false);
 
   const customLayoutRef = useRef(!!storageService.getOverviewWindowLayouts());
 
@@ -124,25 +129,37 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
       setIsLoadingBalances(false);
       return;
     }
+    if (balanceInFlight.current) return;
+    balanceInFlight.current = true;
     setIsLoadingBalances(true);
+    const generation = ++balanceGeneration.current;
     try {
       const tracked = storageService.getTrackedTokens();
-      const reports = await web3Service.getAllChainsBalances(wallet.address, tracked);
+      const reports = await web3Service.getAllChainsBalances(wallet.address, tracked, report => {
+        if (balanceGeneration.current === generation) setChainBalances(previous => ({ ...previous, [report.chainId]: report }));
+      });
+      if (balanceGeneration.current !== generation) return;
       setChainBalances(reports);
       setBalanceError('');
     } catch (err) {
+      if (balanceGeneration.current !== generation) return;
       const message = err instanceof Error ? err.message : String(err);
       setBalanceError(message);
       systemLogService.logError('NETWORK', 'Portfolio Balance Refresh Failed', message);
     } finally {
-      setIsLoadingBalances(false);
+      if (balanceGeneration.current === generation) {
+        balanceInFlight.current = false;
+        setIsLoadingBalances(false);
+      }
     }
   }, [wallet?.address]);
 
   useEffect(() => {
+    setChainBalances({});
+    setBalanceError('');
     loadAllBalances();
     const interval = setInterval(loadAllBalances, 18000);
-    return () => clearInterval(interval);
+    return () => { balanceGeneration.current++; balanceInFlight.current = false; clearInterval(interval); };
   }, [loadAllBalances]);
 
   // Window Layout Update Handler
@@ -191,10 +208,13 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
   const totalNetWorthUsd = useMemo(() => {
     let total = 0;
     Object.values(chainBalances).forEach((rep) => {
-      total += rep.totalChainUsd || 0;
+      total += rep.knownTotalChainUsd ?? rep.totalChainUsd ?? 0;
     });
     return total;
   }, [chainBalances]);
+  const hasKnownValue = Object.values(chainBalances).some(report => report.knownTotalChainUsd !== null);
+  const partialBalance = Object.keys(chainBalances).length < Object.keys(SUPPORTED_CHAINS).length ||
+    Object.values(chainBalances).some(report => report.totalChainUsd === null);
 
   const overallPnl = useMemo(() => accountingError
     ? { realized: null, issues: [accountingError] }
@@ -223,10 +243,10 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
           </div>
           <div className="flex items-baseline gap-2">
             <span className="text-[10px] uppercase font-bold text-slate-400">
-              Total Balance Across All Chains:
+              {partialBalance ? 'Known balance (partial):' : 'Total Balance Across All Chains:'}
             </span>
             <span className="text-sm md:text-base font-extrabold text-theme-primary font-mono">
-              ${totalNetWorthUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+              {hasKnownValue ? `$${totalNetWorthUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD` : isLoadingBalances ? 'Loading…' : 'Unavailable'}
             </span>
           </div>
           <div className="flex items-baseline gap-2">
@@ -283,6 +303,7 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
             containerBounds={containerBounds}
           >
             <WalletCreationPanel
+              onSwitchWallet={onSwitchWallet}
               wallet={wallet}
               onOpenWalletSetup={onOpenWalletSetup}
             />

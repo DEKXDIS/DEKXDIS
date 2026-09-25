@@ -794,6 +794,13 @@ export const App: React.FC = () => {
     systemLogService.logSuccess('WALLET', 'Wallet Imported Successfully', `Active address: ${imported.address}`);
   };
 
+  const handleSwitchWallet = async (address: string) => {
+    const activated = await changeWalletSafely(() => nativeStore.switchWallet(address));
+    setWallet(activated);
+    setOrders(storageService.getOrders());
+    systemLogService.logSuccess('WALLET', 'Saved Wallet Activated', `Active address: ${activated.address}`);
+  };
+
   // Token Approval Handler
   const handleApproveToken = async (tokenAddress: string) => {
     if (!wallet) return;
@@ -1050,6 +1057,7 @@ export const App: React.FC = () => {
           selectedTokenSymbol={selectedToken.symbol}
           walletTradeCard={
             <WalletTradeDropdown
+              onRefreshBalances={() => { void refreshBalances(true); void refreshNativePrice(); }}
               chainId={selectedChainId}
               walletAddress={wallet?.address}
               balanceSnapshot={fundingSnapshot}
@@ -1067,7 +1075,7 @@ export const App: React.FC = () => {
                 walletValuation={walletValuation}
                 allowances={allowances}
                 marketPrice={marketPrice}
-                nativePrice={nativePrice}
+                nativePrice={nativePriceSnapshot?.chainId === selectedChainId ? nativePriceSnapshot.price : 0}
                 chainId={selectedChainId}
                 selectedToken={selectedToken}
                 onGenerateWallet={handleGenerateWallet}
@@ -1113,6 +1121,7 @@ export const App: React.FC = () => {
 
       {isOverviewOpen ? (
         <OverviewDashboard
+          onSwitchWallet={handleSwitchWallet}
           onOpenWalletSetup={() => {
             setWalletModalMode('import');
             setIsWalletModalOpen(true);
@@ -1230,6 +1239,8 @@ export const App: React.FC = () => {
 
       {/* Modals */}
       <LimitOrderModal
+        livePriceUpdatedAt={marketPrice.lastUpdated}
+        onRefreshPrice={refreshMarketPrice}
         isOpen={isLimitModalOpen}
         onClose={() => setIsLimitModalOpen(false)}
         clickedPrice={clickedChartPrice}
@@ -1271,12 +1282,13 @@ export const App: React.FC = () => {
       <CloseConfirmationModal isOpen={closeConfirmationOpen} onCancel={() => setCloseConfirmationOpen(false)} onConfirm={() => { void startupService.confirmExit(); }} />
 
       <WrapModal
+        onRefreshPrice={refreshNativePrice}
         isOpen={isWrapModalOpen}
         onClose={() => setIsWrapModalOpen(false)}
         wallet={wallet}
         balances={balances}
         chainId={selectedChainId}
-        nativePrice={nativePrice}
+        nativePrice={nativePriceSnapshot?.chainId === selectedChainId ? nativePriceSnapshot.price : 0}
         onRefreshBalances={refreshBalances}
       />
 

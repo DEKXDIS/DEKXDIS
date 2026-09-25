@@ -1,4 +1,5 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useLayoutEffect, useRef } from 'react';
+import { containDialogFocus } from './ModalDialog';
 import { AlertTriangle } from 'lucide-react';
 
 export function WalletChangeWarningModal({
@@ -15,15 +16,17 @@ export function WalletChangeWarningModal({
   onConfirm: () => void;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const dialog = dialogRef.current;
     if (isOpen && dialog && !dialog.open) dialog.showModal();
     if (!isOpen && dialog?.open) dialog.close();
+    return () => { if (dialog?.open) dialog.close(); };
   }, [isOpen]);
   if (!isOpen) return null;
 
   return <dialog
     ref={dialogRef}
+    onKeyDown={containDialogFocus}
     aria-labelledby="wallet-change-warning-title"
     onCancel={event => { event.preventDefault(); onCancel(); }}
     className="m-auto p-0 bg-transparent text-slate-200 w-[calc(100%-2rem)] max-w-lg backdrop:bg-black/80 backdrop:backdrop-blur-sm"

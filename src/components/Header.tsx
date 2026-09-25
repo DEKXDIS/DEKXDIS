@@ -4,6 +4,7 @@ import { UpdateNotice } from './UpdateNotice';
 import { UserGuideLink } from './UserGuideLink';
 import { ShieldCheck, RefreshCw, LayoutGrid, Settings, ChevronDown, Plus, Globe, Sparkles, Pin, LayoutDashboard, Palette, Zap, TrendingUp } from 'lucide-react';
 import { MarketPrice, TokenConfig, getDefaultTokensForChain } from '../types/trading';
+import { useFreshTimestamp } from '../hooks/useFreshTimestamp';
 import { SUPPORTED_CHAINS, getChainConfig } from '../types/chains';
 import { storageService } from '../services/storageService';
 import { marketDataService } from '../services/marketDataService';
@@ -70,6 +71,7 @@ export const Header: React.FC<HeaderProps> = ({
 
   const activeChainConfig = getChainConfig(selectedChainId);
   const isPositive = marketPrice.change24h >= 0;
+  const priceFresh = useFreshTimestamp(marketPrice.lastUpdated) && marketPrice.price > 0;
 
   useEffect(() => {
     setPinnedTokens(storageService.getPinnedTokens(selectedChainId));
@@ -415,6 +417,7 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="text-slate-400">{selectedToken.symbol}/USD:</span>
             <span className="font-bold text-white">
               ${marketPrice.price > 0 ? getPricePrecision(marketPrice.price).format(marketPrice.price) : '---.--'}
+              {!priceFresh && <span className="ml-1 text-[10px] text-amber-300">{marketPrice.price > 0 ? 'Last known' : 'Unavailable'}</span>}
             </span>
           </div>
 
@@ -458,12 +461,12 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="hidden md:flex items-center gap-3">
           {/* Borderless Status Badges */}
           <div className="flex items-center gap-3 text-[11px] font-mono text-slate-400">
-            <div className="flex items-center gap-1.5 text-theme-primary">
+            <div className={`flex items-center gap-1.5 ${priceFresh ? 'text-theme-primary' : 'text-amber-300'}`}>
               <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-theme-primary opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-theme-primary"></span>
+                {priceFresh && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-theme-primary opacity-75"></span>}
+                <span className={`relative inline-flex rounded-full h-2 w-2 ${priceFresh ? 'bg-theme-primary' : 'bg-amber-300'}`}></span>
               </span>
-              <span>{activeChainConfig.shortName} Live</span>
+              <span>{activeChainConfig.shortName} · {priceFresh ? 'Prices live' : marketPrice.price > 0 ? 'Price stale' : 'Price unavailable'}</span>
             </div>
 
           </div>

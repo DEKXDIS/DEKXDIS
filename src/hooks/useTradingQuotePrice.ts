@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { tradingQuoteUsdPrice } from '../services/tradingQuote';
+import { useFreshTimestamp } from './useFreshTimestamp';
 
 export function useTradingQuotePrice(chainId: number) {
   const [snapshot, setSnapshot] = useState({ chainId: 0, price: 0, error: '', time: 0 });
@@ -19,6 +20,7 @@ export function useTradingQuotePrice(chainId: number) {
     const timer = setInterval(refresh, 15000);
     return () => { current = false; clearInterval(timer); };
   }, [chainId]);
-  return snapshot.chainId === chainId && Date.now() - snapshot.time < 30000
+  const fresh = useFreshTimestamp(snapshot.time);
+  return snapshot.chainId === chainId && fresh
     ? snapshot : { price: 0, error: 'Waiting for wrapped native USD price' };
 }

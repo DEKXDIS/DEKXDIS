@@ -1,3 +1,7 @@
+import { ModalDialog } from './ModalDialog';
+import { SubmissionFeedback } from './SubmissionFeedback';
+import { useOrderSubmission } from '../hooks/useOrderSubmission';
+import { useFreshTimestamp } from '../hooks/useFreshTimestamp';
 import { placeOrder } from '../services/orderPlacement';
 import { useTradingQuotePrice } from '../hooks/useTradingQuotePrice';
 import { quantityForUsd } from '../utils/amounts';
@@ -43,6 +47,8 @@ interface LimitOrderModalProps {
   targetToken?: TokenConfig;
   chainId?: number;
   livePrice?: number;
+  livePriceUpdatedAt?: number;
+  onRefreshPrice?: () => void;
   existingOrders?: TradeOrder[];
 }
 
@@ -61,6 +67,8 @@ export const LimitOrderModal: React.FC<LimitOrderModalProps> = ({
   targetToken,
   chainId = DEFAULT_CHAIN_ID,
   livePrice,
+  livePriceUpdatedAt,
+  onRefreshPrice,
   existingOrders = [],
 }) => {
   const chainConfig = getChainConfig(chainId);
@@ -96,11 +104,12 @@ export const LimitOrderModal: React.FC<LimitOrderModalProps> = ({
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [stepMsg, setStepMsg] = useState<string>('');
+  const submission = useOrderSubmission(wallet?.address, chainId, token.address, isSubmitting);
 
   // When modal opens or clickedPrice changes, update price inputs
   useEffect(() => {
     if (isOpen && clickedPrice > 0) {
-      const formatted = formatTokenDisplay(clickedPrice);
+      const formatted = String(clickedPrice);
       setPriceInput(formatted);
       setTpPriceManual(null);
       setSlPriceManual(null);
@@ -124,7 +133,8 @@ export const LimitOrderModal: React.FC<LimitOrderModalProps> = ({
 
   // Derived price numbers
   const limitPrice = parseFloat(priceInput) || 0;
-  const currentMarketPrice = livePrice && livePrice > 0 ? livePrice : (clickedPrice > 0 ? clickedPrice : 700);
+  const priceFresh = useFreshTimestamp(livePriceUpdatedAt);
+  const currentMarketPrice = priceFresh && livePrice && livePrice > 0 ? livePrice : 0;
   const isSellAbove = limitPrice >= currentMarketPrice;
 
   const parsedUsd = parseFloat(usdAmount) || 0;
@@ -187,9 +197,10 @@ export const LimitOrderModal: React.FC<LimitOrderModalProps> = ({
   if (!isOpen) return null;
 
   const handlePlaceLimitOrder = async () => {
-    if (isSubmitting) return;
+    if (isSubmitting || submission.blocked || (orderSide === 'SELL' && currentMarketPrice <= 0)) return;
     if (!wallet) { onRequireWallet(); return; }
     setIsSubmitting(true); setErrorMsg(null); setStepMsg('Preparing order…');
+    submission.clear();
     try {
       const placed = await placeOrder({ wallet, token, chainId, candleTime }, {
         side: orderSide === 'BUY' ? 'buy' : 'sell', price: limitPrice, amount: usdAmount, amountUnit: 'usd',
@@ -204,11 +215,12 @@ export const LimitOrderModal: React.FC<LimitOrderModalProps> = ({
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       systemLogService.logError('ORDER', 'Order placement failed: ' + token.symbol, message, chainId);
-      setErrorMsg(message);
+      submission.onError(error);
     } finally { setIsSubmitting(false); setStepMsg(''); }
   };
 
   return (
+    <ModalDialog label="Chart order" onClose={onClose} busy={isSubmitting}>
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-150 select-text">
       <div className="bg-surface border border-surface-border rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col max-h-[92vh] font-mono">
         
@@ -226,7 +238,7 @@ export const LimitOrderModal: React.FC<LimitOrderModalProps> = ({
             </div>
             <div>
               <h2 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
-                {orderSide === 'BUY' ? 'Chart Limit Buy' : isSellAbove ? 'Take-Profit Sell Order' : 'Stop-Loss Sell Order'}
+                {orderSide === 'BUY' ? 'Chart Limit Buy' : currentMarketPrice <= 0 ? 'Chart Sell Order' : isSellAbove ? 'Take-Profit Sell Order' : 'Stop-Loss Sell Order'}
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-950 text-cow-cyan border border-cow-cyan/30">
                   {chainConfig.shortName}
                 </span>
@@ -234,14 +246,15 @@ export const LimitOrderModal: React.FC<LimitOrderModalProps> = ({
               <p className="text-[11px] text-slate-400">
                 {orderSide === 'BUY' 
                   ? `Buy ${token.symbol} at target limit price` 
-                  : isSellAbove 
+                  : currentMarketPrice <= 0 ? 'Waiting for a current market price'
+                  : isSellAbove
                     ? `Selling ${token.symbol} above market ($${formatTokenDisplay(currentMarketPrice)}) for profit`
                     : `Protective exit for ${token.symbol} below market ($${formatTokenDisplay(currentMarketPrice)})`}
               </p>
             </div>
           </div>
           <button
-            onClick={onClose}
+            aria-label="Close" disabled={isSubmitting} onClick={onClose}
             className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-surface transition-colors"
           >
             <X className="w-4 h-4" />
@@ -259,8 +272,8 @@ export const LimitOrderModal: React.FC<LimitOrderModalProps> = ({
                 setOrderSide('BUY');
                 setErrorMsg(null);
                 if (limitPrice > 0) {
-                  setTpPriceManual((limitPrice * (1 + tpPercent / 100)).toFixed(2));
-                  setSlPriceManual((limitPrice * (1 - slPercent / 100)).toFixed(2));
+                  setTpPriceManual(null);
+                  setSlPriceManual(null);
                 }
               }}
               className={`flex-1 py-2 px-3 rounded-lg text-xs font-extrabold transition-all flex items-center justify-center gap-1.5 ${
@@ -308,7 +321,7 @@ export const LimitOrderModal: React.FC<LimitOrderModalProps> = ({
               <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
                 {orderSide === 'BUY' ? (
                   <span>Target Limit Price ($)</span>
-                ) : isSellAbove ? (
+                ) : currentMarketPrice <= 0 ? <span className="text-amber-300">Market price unavailable</span> : isSellAbove ? (
                   <span className="text-emerald-400 flex items-center gap-1 font-bold">
                     <TrendingUp className="w-3.5 h-3.5" />
                     Take-Profit (TP) Target Price ($)
@@ -324,7 +337,7 @@ export const LimitOrderModal: React.FC<LimitOrderModalProps> = ({
               <div className="text-[10px] font-bold">
                 {orderSide === 'BUY' ? (
                   <span className="text-amber-400">Buy @ or below</span>
-                ) : isSellAbove ? (
+                ) : currentMarketPrice <= 0 ? <span className="text-amber-300">Price unavailable</span> : isSellAbove ? (
                   <span className="text-emerald-400">
                     +{(((limitPrice - currentMarketPrice) / currentMarketPrice) * 100).toFixed(1)}% above market
                   </span>
@@ -340,7 +353,7 @@ export const LimitOrderModal: React.FC<LimitOrderModalProps> = ({
               <span className="text-sm font-bold text-slate-500 font-mono">$</span>
               <input
                 type="number"
-                step="0.01"
+                step="any"
                 min="0"
                 value={priceInput}
                 onChange={(e) => {
@@ -348,8 +361,8 @@ export const LimitOrderModal: React.FC<LimitOrderModalProps> = ({
                   setPriceInput(val);
                   const parsed = parseFloat(val);
                   if (parsed > 0) {
-                    setTpPriceManual((parsed * (1 + tpPercent / 100)).toFixed(2));
-                    setSlPriceManual((parsed * (1 - slPercent / 100)).toFixed(2));
+                    setTpPriceManual(null);
+                    setSlPriceManual(null);
                   }
                 }}
                 className="w-full bg-transparent text-lg font-bold font-mono text-white focus:outline-none"
@@ -358,7 +371,7 @@ export const LimitOrderModal: React.FC<LimitOrderModalProps> = ({
             </div>
             
             <div className="text-[10px] text-slate-400 mt-1 flex items-center justify-between">
-              <span>Market Price: ${formatTokenDisplay(currentMarketPrice)}</span>
+              <span>Market Price: {currentMarketPrice > 0 ? `$${formatTokenDisplay(currentMarketPrice)}` : 'Unavailable'}</span>
               <span className="text-slate-500">Right-clicked chart price</span>
             </div>
           </div>
@@ -496,7 +509,7 @@ export const LimitOrderModal: React.FC<LimitOrderModalProps> = ({
                         type="number"
                         step="any"
                         aria-label="Connected TP/SL price"
-                        value={connectedPriceManual ?? formatTokenDisplay(calculatedConnectedPrice)}
+                        value={connectedPriceManual ?? String(calculatedConnectedPrice)}
                         onChange={(e) => {
                           const val = e.target.value;
                           setConnectedPriceManual(val);
@@ -593,7 +606,7 @@ export const LimitOrderModal: React.FC<LimitOrderModalProps> = ({
                         type="number"
                         step="any"
                         aria-label="TP price"
-                        value={tpPriceManual ?? formatTokenDisplay(calculatedTpPrice)}
+                        value={tpPriceManual ?? String(calculatedTpPrice)}
                         onChange={(e) => {
                           const val = e.target.value;
                           setTpPriceManual(val);
@@ -678,7 +691,7 @@ export const LimitOrderModal: React.FC<LimitOrderModalProps> = ({
                         type="number"
                         step="any"
                         aria-label="SL price"
-                        value={slPriceManual ?? formatTokenDisplay(calculatedSlPrice)}
+                        value={slPriceManual ?? String(calculatedSlPrice)}
                         onChange={(e) => {
                           const val = e.target.value;
                           setSlPriceManual(val);
@@ -737,6 +750,11 @@ export const LimitOrderModal: React.FC<LimitOrderModalProps> = ({
           )}
 
           {/* Status / Error Message */}
+          {currentMarketPrice <= 0 && <p role="status" className="text-xs text-amber-300">
+            Current market price unavailable. {orderSide === 'SELL' ? 'Refresh the price before placing a sell order.' : 'The entry price is your selected chart price.'}
+            {onRefreshPrice && <button type="button" className="ml-1 underline" onClick={onRefreshPrice}>Refresh price</button>}
+          </p>}
+          <SubmissionFeedback submission={submission} onStartAnother={() => setUsdAmount('')} />
           {errorMsg && (
             <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl flex items-start gap-2 text-xs text-rose-400">
               <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
@@ -767,7 +785,7 @@ export const LimitOrderModal: React.FC<LimitOrderModalProps> = ({
             </button>
             <button
               onClick={handlePlaceLimitOrder}
-              disabled={isSubmitting || limitPrice <= 0 || parsedUsd <= 0}
+              disabled={isSubmitting || submission.blocked || (orderSide === 'SELL' && currentMarketPrice <= 0) || limitPrice <= 0 || parsedUsd <= 0}
               className={`btn-tactile px-5 py-2 rounded-xl text-xs font-bold uppercase transition-all shadow-lg flex items-center gap-1.5 cursor-pointer ${
                 orderSide === 'BUY'
                   ? 'bg-theme-gradient text-slate-950 font-extrabold shadow-glow-primary'
@@ -792,5 +810,6 @@ export const LimitOrderModal: React.FC<LimitOrderModalProps> = ({
 
       </div>
     </div>
+    </ModalDialog>
   );
 };

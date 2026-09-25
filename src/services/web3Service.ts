@@ -59,24 +59,25 @@ function balanceReadFailure(chainId: number, cause: unknown): Error & { code: st
 export interface ChainTokenBalance {
   token: TokenConfig;
   balance: string;
-  usdValue: number;
-  priceUsd: number;
+  usdValue: number | null;
+  priceUsd: number | null;
 }
 
 export interface ChainBalanceReport {
   chainId: number;
   chainConfig: any;
-  nativeBalance: string;
-  nativeUsd: number;
-  wrappedBalance: string;
-  wrappedUsd: number;
-  usdtBalance: string;
-  usdtUsd: number;
-  usdcBalance: string;
-  usdcUsd: number;
+  nativeBalance: string | null;
+  nativeUsd: number | null;
+  wrappedBalance: string | null;
+  wrappedUsd: number | null;
+  usdtBalance: string | null;
+  usdtUsd: number | null;
+  usdcBalance: string | null;
+  usdcUsd: number | null;
   tokens: ChainTokenBalance[];
-  totalChainUsd: number;
-  nativePriceUsd: number;
+  totalChainUsd: number | null;
+  knownTotalChainUsd: number | null;
+  nativePriceUsd: number | null;
   isLoading: boolean;
   error?: string;
 }
@@ -620,125 +621,66 @@ export const web3Service = {
 
   async getAllChainsBalances(
     address: string,
-    trackedTokens: TokenConfig[] = []
+    trackedTokens: TokenConfig[] = [],
+    onChainReport?: (report: ChainBalanceReport) => void,
   ): Promise<Record<number, ChainBalanceReport>> {
-    if (!address || !ethers.isAddress(address)) {
-      throw balanceReadFailure(DEFAULT_CHAIN_ID, new Error('Invalid wallet address'));
-    }
-
-    const chainEntries = Object.entries(SUPPORTED_CHAINS);
-    const results = await Promise.allSettled(
-      chainEntries.map(async ([cIdStr, chainCfg]) => {
-        const chainId = parseInt(cIdStr, 10);
-        try {
-          // Filter tracked tokens belonging to this specific chain
-          const chainTracked = trackedTokens.filter((t) => (t.chainId || DEFAULT_CHAIN_ID) === chainId);
-
-          // Deduplicate tracked tokens by contract address
-          const uniqueChainTokens = chainTracked.filter(
-            (t, index, self) => index === self.findIndex((o) => o.address.toLowerCase() === t.address.toLowerCase())
-          );
-
-          // 1-Shot Multicall3 query for all balances & allowances on this chain
-          const batched = await this.getBalancesAndAllowancesBatched(address, chainId, uniqueChainTokens);
-
-          // Get native price
-          let nativePrice = 0;
+    if (!address || !ethers.isAddress(address)) throw balanceReadFailure(DEFAULT_CHAIN_ID, new Error('Invalid wallet address'));
+    const reports = await Promise.all(Object.entries(SUPPORTED_CHAINS).map(async ([id, chainCfg]) => {
+      const chainId = Number(id);
+      let report: ChainBalanceReport;
+      try {
+        const chainTracked = trackedTokens.filter(token => (token.chainId || DEFAULT_CHAIN_ID) === chainId);
+        const unique = chainTracked.filter((token, index) => index === chainTracked.findIndex(other => other.address.toLowerCase() === token.address.toLowerCase()));
+        const batched = await this.getBalancesAndAllowancesBatched(address, chainId, unique);
+        const wrappedAddr = chainCfg.nativeToken.wrappedAddress.toLowerCase();
+        const usdtAddr = chainCfg.usdtToken.address.toLowerCase();
+        const nativeBalance = batched.nativeBalance;
+        const wrappedBalance = batched.tokenBalances[wrappedAddr] || '0';
+        const usdtBalance = batched.tokenBalances[usdtAddr] || '0';
+        const missingPrices: string[] = [];
+        const readPrice = async (symbol: string, fetchPrice: () => Promise<number>): Promise<number | null> => {
           try {
-            nativePrice = await marketDataService.fetchNativeTokenPrice(chainId);
-          } catch (pErr: any) {
-            throw pErr;
+            const price = await fetchPrice();
+            if (!Number.isFinite(price) || price <= 0) throw new Error('Invalid price');
+            return price;
+          } catch {
+            missingPrices.push(symbol);
+            return null;
           }
-
-          const wrappedAddr = chainCfg.nativeToken.wrappedAddress.toLowerCase();
-          const usdtAddr = chainCfg.usdtToken.address.toLowerCase();
-
-          const nativeVal = parseFloat(batched.nativeBalance || '0');
-          const nativeUsd = nativeVal * nativePrice;
-
-          const wrappedVal = parseFloat(batched.tokenBalances[wrappedAddr] || '0');
-          const wrappedUsd = wrappedVal * nativePrice;
-
-          const usdtVal = parseFloat(batched.tokenBalances[usdtAddr] || '0');
-          const usdtUsd = usdtVal;
-
-          // Process additional distinct tracked tokens
-          const distinctTrackedTokens = uniqueChainTokens.filter(
-            (t) =>
-              t.address.toLowerCase() !== wrappedAddr &&
-              t.address.toLowerCase() !== usdtAddr
-          );
-
-          const tokenReports: ChainTokenBalance[] = [];
-          await Promise.all(
-            distinctTrackedTokens.map(async (tok) => {
-              const lowerAddr = tok.address.toLowerCase();
-              const formatted = batched.tokenBalances[lowerAddr] || '0.00';
-              const balNum = parseFloat(formatted);
-
-              let price = 0;
-              if (balNum > 0) {
-                try {
-                  const p = await marketDataService.fetchTokenPrice(tok.address, chainId, tok.binanceSymbol);
-                  price = p.price;
-                } catch (e: any) {
-                  throw e;
-                }
-              }
-
-              const usdVal = balNum * price;
-              tokenReports.push({
-                token: tok,
-                balance: formatted,
-                usdValue: usdVal,
-                priceUsd: price,
-              });
-            })
-          );
-
-          const trackedTokensTotalUsd = tokenReports.reduce((sum, t) => sum + t.usdValue, 0);
-          const totalChainUsd = nativeUsd + wrappedUsd + usdtUsd + trackedTokensTotalUsd;
-
-          const report: ChainBalanceReport = {
-            chainId,
-            chainConfig: chainCfg,
-            nativeBalance: batched.nativeBalance,
-            nativeUsd,
-            wrappedBalance: batched.tokenBalances[wrappedAddr] || '0',
-            wrappedUsd,
-            usdtBalance: batched.tokenBalances[usdtAddr] || '0',
-            usdtUsd,
-            usdcBalance: '0.00',
-            usdcUsd: 0,
-            tokens: tokenReports,
-            totalChainUsd,
-            nativePriceUsd: nativePrice,
-            isLoading: false,
-          };
-          return report;
-        } catch (err: any) {
-          systemLogService.logError(
-            'NETWORK',
-            `Chain Balance Query Failed (${chainCfg.shortName})`,
-            err?.message || String(err),
-            chainId
-          );
-          throw balanceReadFailure(chainId, err);
-        }
-      })
-    );
-
-    const resultMap: Record<number, ChainBalanceReport> = {};
-    results.forEach((res, idx) => {
-      const chainId = parseInt(chainEntries[idx][0], 10);
-      if (res.status === 'fulfilled') {
-        resultMap[chainId] = res.value;
-      } else {
-        throw balanceReadFailure(chainId, res.reason);
+        };
+        const value = (balance: string, price: number | null) => Number(balance) === 0 ? 0 : price === null ? null : Number(balance) * price;
+        // A price failure must not discard a successful on-chain balance read.
+        const nativePrice = Number(nativeBalance) > 0 || Number(wrappedBalance) > 0
+          ? await readPrice(chainCfg.nativeToken.symbol, () => marketDataService.fetchNativeTokenPrice(chainId)) : 0;
+        const nativeUsd = value(nativeBalance, nativePrice);
+        const wrappedUsd = value(wrappedBalance, nativePrice);
+        const usdtUsd = Number(usdtBalance);
+        const tokens: ChainTokenBalance[] = await Promise.all(unique.filter(token =>
+          token.address.toLowerCase() !== wrappedAddr && token.address.toLowerCase() !== usdtAddr).map(async token => {
+          const balance = batched.tokenBalances[token.address.toLowerCase()] || '0';
+          const priceUsd = Number(balance) > 0 ? await readPrice(token.symbol, async () =>
+            (await marketDataService.fetchTokenPrice(token.address, chainId, token.binanceSymbol)).price) : 0;
+          return { token, balance, priceUsd, usdValue: value(balance, priceUsd) };
+        }));
+        const values = [nativeUsd, wrappedUsd, usdtUsd, ...tokens.map(token => token.usdValue)];
+        const knownTotalChainUsd = values.reduce<number>((sum, amount) => sum + (amount ?? 0), 0);
+        report = { chainId, chainConfig: chainCfg, nativeBalance, nativeUsd, wrappedBalance, wrappedUsd,
+          usdtBalance, usdtUsd, usdcBalance: '0.00', usdcUsd: 0, tokens,
+          totalChainUsd: values.some(amount => amount === null) ? null : knownTotalChainUsd,
+          knownTotalChainUsd, nativePriceUsd: nativePrice, isLoading: false,
+          ...(missingPrices.length ? { error: 'USD prices unavailable: ' + missingPrices.join(', ') } : {}),
+        };
+      } catch (error) {
+        const message = balanceReadFailure(chainId, error).message;
+        systemLogService.logError('NETWORK', 'Chain Balance Query Failed (' + chainCfg.shortName + ')', message, chainId);
+        report = { chainId, chainConfig: chainCfg, nativeBalance: null, nativeUsd: null, wrappedBalance: null, wrappedUsd: null,
+          usdtBalance: null, usdtUsd: null, usdcBalance: null, usdcUsd: null, tokens: [], totalChainUsd: null,
+          knownTotalChainUsd: null, nativePriceUsd: null, isLoading: false, error: message };
       }
-    });
-
-    return resultMap;
+      onChainReport?.(report);
+      return report;
+    }));
+    return Object.fromEntries(reports.map(report => [report.chainId, report]));
   },
 
   async getMultiChainGasFees(): Promise<Record<number, ChainGasFeeInfo>> {

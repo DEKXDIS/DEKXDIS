@@ -1,3 +1,4 @@
+import { ModalDialog } from './ModalDialog';
 import React from 'react';
 import { X, Palette, Check, Sparkles } from 'lucide-react';
 import { ThemeId, THEME_PRESETS, getThemeConfig } from '../types/theme';
@@ -18,6 +19,7 @@ export const ThemeSelectorModal: React.FC<ThemeSelectorModalProps> = ({
   if (!isOpen) return null;
 
   return (
+    <ModalDialog label="Select theme" onClose={onClose} busy={false}>
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-150 select-text">
       <div className="bg-surface border border-surface-border rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
         
@@ -33,7 +35,7 @@ export const ThemeSelectorModal: React.FC<ThemeSelectorModalProps> = ({
             </div>
           </div>
           <button
-            onClick={onClose}
+            aria-label="Close" disabled={false} onClick={onClose}
             className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-surface-border transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
@@ -114,5 +116,6 @@ export const ThemeSelectorModal: React.FC<ThemeSelectorModalProps> = ({
 
       </div>
     </div>
+    </ModalDialog>
   );
 };

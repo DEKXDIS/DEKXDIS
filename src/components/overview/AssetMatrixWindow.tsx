@@ -1,3 +1,4 @@
+import { ModalDialog } from '../ModalDialog';
 import { assetTransferQuote } from '../../services/assetTransferQuote';
 import { AssetSendModal, AssetSendHistory } from './AssetSendModal';
 import { exclusive } from '../../services/executionEngine';
@@ -33,11 +34,13 @@ import {
   AlertCircle
 } from 'lucide-react';
 
+const matrixUsd = (value: number | null | undefined) => value !== null && value !== undefined && Number.isFinite(value) ? `${formatUsdDisplay(value)} USD` : 'USD unavailable';
+
 export interface SelectedMatrixToken {
   token: TokenConfig;
   chainId: number;
   balance: string;
-  usdValue: number;
+  usdValue: number | null;
   chainIndex: number; // 0 to 4
   category: 'native' | 'wrapped' | 'usdt' | 'custom';
 }
@@ -102,7 +105,7 @@ export const AssetMatrixWindow: React.FC<AssetMatrixWindowProps> = ({
   }, [transfers, activeBridgeHash, wallet?.address]);
 
   const [sendAsset, setSendAsset] = useState<SelectedMatrixToken | null>(null);
-  useEffect(() => { setSendAsset(null); }, [wallet?.address]);
+  useEffect(() => { setSendAsset(null); setToken1(null); setToken2(null); setIsSwapModalOpen(false); }, [wallet?.address]);
 
   const chainList = useMemo(() => {
     return Object.entries(SUPPORTED_CHAINS).map(([idStr, cfg], idx) => ({
@@ -114,7 +117,7 @@ export const AssetMatrixWindow: React.FC<AssetMatrixWindowProps> = ({
 
   // Handle clicking a token cell in the matrix
   const handleTokenClick = (item: SelectedMatrixToken) => {
-    if (executionLock.current) return;
+    if (executionLock.current || !item.balance) return;
     setMaxSelected(false);
     if (!token1) {
       // First token clicked
@@ -253,10 +256,11 @@ export const AssetMatrixWindow: React.FC<AssetMatrixWindowProps> = ({
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-white text-xs truncate">{config.name}</span>
                   <span className="text-[9px] text-slate-400 font-mono">
-                    ${formatUsdDisplay(report?.totalChainUsd || 0)}
+                    {matrixUsd(report?.totalChainUsd)}
                   </span>
                 </div>
 
+                {report?.error && <p role="status" className="mt-1 text-[9px] text-amber-300 break-words">{report.error} <button type="button" className="underline" onClick={onRefreshBalances}>Retry</button></p>}
                 {/* Deposit Button with QR Icon */}
                 <button
                   type="button"
@@ -280,8 +284,8 @@ export const AssetMatrixWindow: React.FC<AssetMatrixWindowProps> = ({
           <div className="grid grid-cols-5 gap-2">
             {chainList.map(({ chainId, config, index }) => {
               const rep = chainBalances[chainId];
-              const balFormatted = rep ? rep.nativeBalance : '0.0000';
-              const usdVal = rep ? rep.nativeUsd : 0;
+              const balFormatted = rep?.nativeBalance ?? '';
+              const usdVal = rep?.nativeUsd ?? null;
 
               const tokenItem: SelectedMatrixToken = {
                 token: {
@@ -311,7 +315,7 @@ export const AssetMatrixWindow: React.FC<AssetMatrixWindowProps> = ({
                 <div
                   key={chainId}
                   onClick={() => handleTokenClick(tokenItem)}
-                  role="button" tabIndex={0} aria-label={`Select ${tokenItem.token.symbol} on ${getChainConfig(chainId).name}`}
+                  role="button" aria-disabled={!balFormatted} tabIndex={balFormatted ? 0 : -1} aria-label={`Select ${tokenItem.token.symbol} on ${getChainConfig(chainId).name}`}
                   onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); handleTokenClick(tokenItem); } }}
                   className={`btn-tactile p-2 rounded-xl border transition-all cursor-pointer relative flex flex-col justify-between ${
                     isSelected1
@@ -344,10 +348,10 @@ export const AssetMatrixWindow: React.FC<AssetMatrixWindowProps> = ({
 
                   <div className="mt-1 font-mono">
                     <div className="font-extrabold text-white text-xs">
-                      ${formatUsdDisplay(usdVal)} USD
+                      {matrixUsd(usdVal)}
                     </div>
                     <div className="text-[9px] text-slate-400">
-                      {formatTokenDisplay(balFormatted)} {config.nativeToken.symbol} ({config.shortName})
+                      {balFormatted ? formatTokenDisplay(balFormatted) : 'Unavailable'} {config.nativeToken.symbol} ({config.shortName})
                     </div>
                   </div>
 
@@ -378,8 +382,8 @@ export const AssetMatrixWindow: React.FC<AssetMatrixWindowProps> = ({
           <div className="grid grid-cols-5 gap-2">
             {chainList.map(({ chainId, config, index }) => {
               const rep = chainBalances[chainId];
-              const balFormatted = rep ? rep.wrappedBalance : '0.0000';
-              const usdVal = rep ? rep.wrappedUsd : 0;
+              const balFormatted = rep?.wrappedBalance ?? '';
+              const usdVal = rep?.wrappedUsd ?? null;
 
               const tokenItem: SelectedMatrixToken = {
                 token: {
@@ -409,7 +413,7 @@ export const AssetMatrixWindow: React.FC<AssetMatrixWindowProps> = ({
                 <div
                   key={chainId}
                   onClick={() => handleTokenClick(tokenItem)}
-                  role="button" tabIndex={0} aria-label={`Select ${tokenItem.token.symbol} on ${getChainConfig(chainId).name}`}
+                  role="button" aria-disabled={!balFormatted} tabIndex={balFormatted ? 0 : -1} aria-label={`Select ${tokenItem.token.symbol} on ${getChainConfig(chainId).name}`}
                   onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); handleTokenClick(tokenItem); } }}
                   className={`btn-tactile p-2 rounded-xl border transition-all cursor-pointer relative flex flex-col justify-between ${
                     isSelected1
@@ -440,10 +444,10 @@ export const AssetMatrixWindow: React.FC<AssetMatrixWindowProps> = ({
 
                   <div className="mt-1 font-mono">
                     <div className="font-extrabold text-white text-xs">
-                      ${formatUsdDisplay(usdVal)} USD
+                      {matrixUsd(usdVal)}
                     </div>
                     <div className="text-[9px] text-slate-400">
-                      {formatTokenDisplay(balFormatted)} {config.nativeToken.wrappedSymbol} ({config.shortName})
+                      {balFormatted ? formatTokenDisplay(balFormatted) : 'Unavailable'} {config.nativeToken.wrappedSymbol} ({config.shortName})
                     </div>
                   </div>
 
@@ -473,8 +477,8 @@ export const AssetMatrixWindow: React.FC<AssetMatrixWindowProps> = ({
           <div className="grid grid-cols-5 gap-2">
             {chainList.map(({ chainId, config, index }) => {
               const rep = chainBalances[chainId];
-              const balFormatted = rep ? rep.usdtBalance : '0.00';
-              const usdVal = rep ? rep.usdtUsd : 0;
+              const balFormatted = rep?.usdtBalance ?? '';
+              const usdVal = rep?.usdtUsd ?? null;
 
               const tokenItem: SelectedMatrixToken = {
                 token: {
@@ -501,7 +505,7 @@ export const AssetMatrixWindow: React.FC<AssetMatrixWindowProps> = ({
                 <div
                   key={chainId}
                   onClick={() => handleTokenClick(tokenItem)}
-                  role="button" tabIndex={0} aria-label={`Select ${tokenItem.token.symbol} on ${getChainConfig(chainId).name}`}
+                  role="button" aria-disabled={!balFormatted} tabIndex={balFormatted ? 0 : -1} aria-label={`Select ${tokenItem.token.symbol} on ${getChainConfig(chainId).name}`}
                   onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); handleTokenClick(tokenItem); } }}
                   className={`btn-tactile p-2 rounded-xl border transition-all cursor-pointer relative flex flex-col justify-between ${
                     isSelected1
@@ -532,10 +536,10 @@ export const AssetMatrixWindow: React.FC<AssetMatrixWindowProps> = ({
 
                   <div className="mt-1 font-mono">
                     <div className="font-extrabold text-theme-primary text-xs">
-                      ${formatUsdDisplay(usdVal)} USD
+                      {matrixUsd(usdVal)}
                     </div>
                     <div className="text-[9px] text-slate-400">
-                      {formatUsdDisplay(balFormatted)} USDT ({config.shortName})
+                      {balFormatted ? formatUsdDisplay(balFormatted) : 'Unavailable'} USDT ({config.shortName})
                     </div>
                   </div>
 
@@ -576,9 +580,9 @@ export const AssetMatrixWindow: React.FC<AssetMatrixWindowProps> = ({
 
               const activeTokensToDisplay = chainTokens.length > 0 ? chainTokens : localTracked.map(t => ({
                 token: t,
-                balance: '0.00',
-                usdValue: 0,
-                priceUsd: 0,
+                balance: '',
+                usdValue: null,
+                priceUsd: null,
               }));
 
               if (activeTokensToDisplay.length === 0) {
@@ -593,8 +597,8 @@ export const AssetMatrixWindow: React.FC<AssetMatrixWindowProps> = ({
                 <div key={chainId} className="space-y-1.5">
                   {activeTokensToDisplay.map((tReport) => {
                     const tok = tReport.token;
-                    const balFormatted = tReport.balance || '0.00';
-                    const usdVal = tReport.usdValue || 0;
+                    const balFormatted = tReport.balance;
+                    const usdVal = tReport.usdValue;
 
                     const tokenItem: SelectedMatrixToken = {
                       token: tok,
@@ -618,7 +622,7 @@ export const AssetMatrixWindow: React.FC<AssetMatrixWindowProps> = ({
                       <div
                         key={`${chainId}_${tok.address}`}
                         onClick={() => handleTokenClick(tokenItem)}
-                        role="button" tabIndex={0} aria-label={`Select ${tokenItem.token.symbol} on ${getChainConfig(chainId).name}`}
+                        role="button" aria-disabled={!balFormatted} tabIndex={balFormatted ? 0 : -1} aria-label={`Select ${tokenItem.token.symbol} on ${getChainConfig(chainId).name}`}
                         onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); handleTokenClick(tokenItem); } }}
                         className={`btn-tactile p-2 rounded-xl border transition-all cursor-pointer relative flex flex-col justify-between ${
                           isSelected1
@@ -651,10 +655,10 @@ export const AssetMatrixWindow: React.FC<AssetMatrixWindowProps> = ({
 
                         <div className="mt-1 font-mono">
                           <div className="font-extrabold text-emerald-400 text-xs">
-                            ${formatUsdDisplay(usdVal)} USD
+                            {matrixUsd(usdVal)}
                           </div>
                           <div className="text-[9px] text-slate-400 truncate">
-                            {formatAssetDisplay(balFormatted, tok.symbol)} {tok.symbol}
+                            {balFormatted ? formatAssetDisplay(balFormatted, tok.symbol) : 'Unavailable'} {tok.symbol}
                           </div>
                         </div>
 
@@ -686,11 +690,12 @@ export const AssetMatrixWindow: React.FC<AssetMatrixWindowProps> = ({
         from={wallet.address} asset={sendAsset.category === 'native'
           ? { kind: 'native', chainId: sendAsset.chainId, symbol: sendAsset.token.symbol, decimals: sendAsset.token.decimals }
           : { kind: 'erc20', chainId: sendAsset.chainId, symbol: sendAsset.token.symbol, decimals: sendAsset.token.decimals, address: sendAsset.token.address }}
-        displayPrice={Number(sendAsset.balance) > 0 ? sendAsset.usdValue / Number(sendAsset.balance) : undefined}
+        displayPrice={sendAsset.usdValue !== null && Number(sendAsset.balance) > 0 ? sendAsset.usdValue / Number(sendAsset.balance) : undefined}
         onClose={() => setSendAsset(null)} onRefresh={onRefreshBalances} />}
 
       {/* 5. INTERACTIVE SWAP / BRIDGE MODAL POPUP */}
       {isSwapModalOpen && token1 && token2 && (
+        <ModalDialog label="Swap or bridge assets" onClose={() => setIsSwapModalOpen(false)} busy={isExecuting}>
         <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-150 select-text">
           <div className="bg-surface border border-surface-border rounded-2xl w-full max-w-md shadow-2xl overflow-hidden font-mono flex flex-col max-h-[90vh]">
             
@@ -721,14 +726,14 @@ export const AssetMatrixWindow: React.FC<AssetMatrixWindowProps> = ({
                   <span className="text-[9px] text-slate-500 uppercase font-bold">Source Token</span>
                   <div className="font-bold text-white text-xs mt-0.5">{token1.token.symbol}</div>
                   <div className="text-[10px] text-theme-primary font-bold">{getChainConfig(token1.chainId).name}</div>
-                  <div className="text-[10px] text-slate-400 mt-1">Avail: ${formatUsdDisplay(token1.usdValue)} USD</div>
+                  <div className="text-[10px] text-slate-400 mt-1">Avail: {matrixUsd(token1.usdValue)}</div>
                 </div>
 
                 <div className="text-right">
                   <span className="text-[9px] text-slate-500 uppercase font-bold">Destination Token</span>
                   <div className="font-bold text-white text-xs mt-0.5">{token2.token.symbol}</div>
                   <div className="text-[10px] text-theme-secondary font-bold">{getChainConfig(token2.chainId).name}</div>
-                  <div className="text-[10px] text-slate-400 mt-1">Current: ${formatUsdDisplay(token2.usdValue)} USD</div>
+                  <div className="text-[10px] text-slate-400 mt-1">Current: {matrixUsd(token2.usdValue)}</div>
                 </div>
               </div>
 
@@ -736,7 +741,7 @@ export const AssetMatrixWindow: React.FC<AssetMatrixWindowProps> = ({
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between text-xs text-slate-400">
                   <span>Amount to Swap (USD):</span>
-                  <span>Max: ${formatUsdDisplay(token1.usdValue)} USD</span>
+                  <span>Max: {matrixUsd(token1.usdValue)}</span>
                 </div>
 
                 <div className="bg-background border border-surface-border focus-within:border-theme-primary rounded-xl p-2.5 flex items-center justify-between">
@@ -766,7 +771,7 @@ export const AssetMatrixWindow: React.FC<AssetMatrixWindowProps> = ({
                           return;
                         }
                         setMaxSelected(false);
-                        if (token1.usdValue > 0) {
+                        if (token1.usdValue !== null && token1.usdValue > 0) {
                           setSwapAmountUsd((token1.usdValue * (pct / 100)).toFixed(2));
                         }
                       }}
@@ -855,7 +860,7 @@ export const AssetMatrixWindow: React.FC<AssetMatrixWindowProps> = ({
                     <button
                       type="button"
                       onClick={handleExecuteSwap}
-                      disabled={isExecuting || isLoadingQuote || !bridgeQuote || bridgeQuote.inputKey !== inputKey || !!quoteError || hasInsufficientGas || (!maxSelected && (parseFloat(swapAmountUsd) <= 0 || parseFloat(swapAmountUsd) > token1.usdValue))}
+                      disabled={isExecuting || isLoadingQuote || !bridgeQuote || bridgeQuote.inputKey !== inputKey || !!quoteError || hasInsufficientGas || (!maxSelected && (parseFloat(swapAmountUsd) <= 0 || (token1.usdValue === null || parseFloat(swapAmountUsd) > token1.usdValue)))}
                       className="btn-tactile w-full py-3 rounded-xl bg-theme-gradient text-slate-950 font-extrabold text-xs uppercase tracking-wider transition-all shadow-glow-primary disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
                     >
                       {isExecuting ? (
@@ -865,7 +870,7 @@ export const AssetMatrixWindow: React.FC<AssetMatrixWindowProps> = ({
                         </>
                       ) : hasInsufficientGas ? (
                         <span>Insufficient {sourceChainCfg?.nativeToken.symbol} for Gas</span>
-                      ) : !maxSelected && parseFloat(swapAmountUsd) > token1.usdValue ? (
+                      ) : !maxSelected && (token1.usdValue === null || parseFloat(swapAmountUsd) > token1.usdValue) ? (
                         <span>Insufficient Balance</span>
                       ) : (
                         <span>Confirm Swap (${swapAmountUsd} USD)</span>
@@ -879,6 +884,7 @@ export const AssetMatrixWindow: React.FC<AssetMatrixWindowProps> = ({
 
           </div>
         </div>
+      </ModalDialog>
       )}
 
     </div>

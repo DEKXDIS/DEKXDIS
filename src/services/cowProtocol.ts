@@ -6,6 +6,7 @@ import { CowQuoteRequest, CowQuoteResponse, TradeOrder } from '../types/trading'
 import { getChainConfig, DEFAULT_CHAIN_ID } from '../types/chains';
 import { systemLogService } from './systemLogService';
 import { orderJournal, Submission } from './orderJournal';
+import { OrderSubmissionError } from './submissionError';
 import { nativeStore } from './nativeStore';
 
 const EIP712_TYPES = {
@@ -88,7 +89,20 @@ export const cowProtocol = {
     checkOwner();
     await orderJournal.put(record);
     checkOwner();
-    const accepted = await this.postSubmission(record);
+    let accepted: string;
+    try {
+      accepted = await this.postSubmission(record);
+    } catch (error) {
+      const failed = orderJournal.all().find(item => item.uid === uid);
+      let detail = error instanceof Error ? error.message : String(error);
+      // Remember a lost response so every form (and a restarted app) recognizes recovery.
+      // Never recreate a journal entry that was already acknowledged and removed.
+      if (failed && !failed.error) {
+        try { await orderJournal.put({ ...failed, error: detail }); }
+        catch (saveError) { detail += ` Tracking could not be saved: ${String(saveError)}`; }
+      }
+      throw new OrderSubmissionError(uid, !!failed?.rejected, detail);
+    }
     checkOwner();
     return accepted;
   },

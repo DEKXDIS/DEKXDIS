@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import { ModalDialog } from './ModalDialog';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   X, 
   RefreshCw, 
@@ -28,7 +29,11 @@ interface TokenAuditModalProps {
   chainId: number;
 }
 
-export const TokenAuditModal: React.FC<TokenAuditModalProps> = ({
+export const TokenAuditModal: React.FC<TokenAuditModalProps> = (props) => props.isOpen
+  ? <TokenAuditContent key={`${props.token.chainId || props.chainId}:${props.token.address.toLowerCase()}`} {...props} />
+  : null;
+
+const TokenAuditContent: React.FC<TokenAuditModalProps> = ({
   isOpen,
   onClose,
   token,
@@ -40,39 +45,47 @@ export const TokenAuditModal: React.FC<TokenAuditModalProps> = ({
   const [isLoadingLiquidity, setIsLoadingLiquidity] = useState<boolean>(false);
   const [securityError, setSecurityError] = useState<string | null>(null);
   const [liquidityError, setLiquidityError] = useState<string | null>(null);
+  const auditId = useRef(0);
 
   const effectiveChainId = token.chainId || chainId;
   const chainConfig = getChainConfig(effectiveChainId);
 
   const runAudit = async () => {
     if (!token.address) return;
+    const requestId = ++auditId.current;
+    setSecurityReport(null);
+    setLiquidityReport(null);
+    setIsLoadingLiquidity(true);
+    setLiquidityError(null);
 
     // 1. Run GoPlus Security Scan
     setIsLoadingSecurity(true);
     setSecurityError(null);
     try {
       const sec = await goPlusSecurityService.checkTokenSecurity(token.address, effectiveChainId);
+      if (auditId.current !== requestId) return;
       if (!sec) {
         setSecurityError(`Error [ERR_SECURITY_UNAVAILABLE]: GoPlus API returned no scan data for ${token.symbol} on ${chainConfig.name}.`);
       } else {
         setSecurityReport(sec);
       }
     } catch (err: any) {
-      setSecurityError(err.message || `Error [ERR_SECURITY_FAILED]: Failed to audit token security.`);
+      if (auditId.current === requestId) setSecurityError(err.message || `Error [ERR_SECURITY_FAILED]: Failed to audit token security.`);
     } finally {
-      setIsLoadingSecurity(false);
+      if (auditId.current === requestId) setIsLoadingSecurity(false);
     }
 
     // 2. Run DEX Liquidity Pool Scan
+    if (auditId.current !== requestId) return;
     setIsLoadingLiquidity(true);
     setLiquidityError(null);
     try {
       const liq = await dexLiquidityService.fetchTokenLiquidity(token.address, effectiveChainId);
-      setLiquidityReport(liq);
+      if (auditId.current === requestId) setLiquidityReport(liq);
     } catch (err: any) {
-      setLiquidityError(err.message || `Error [ERR_LIQUIDITY_FAILED]: Failed to fetch DEX liquidity.`);
+      if (auditId.current === requestId) setLiquidityError(err.message || `Error [ERR_LIQUIDITY_FAILED]: Failed to fetch DEX liquidity.`);
     } finally {
-      setIsLoadingLiquidity(false);
+      if (auditId.current === requestId) setIsLoadingLiquidity(false);
     }
   };
 
@@ -80,11 +93,13 @@ export const TokenAuditModal: React.FC<TokenAuditModalProps> = ({
     if (isOpen) {
       runAudit();
     }
+    return () => { auditId.current += 1; };
   }, [isOpen, token.address, effectiveChainId]);
 
   if (!isOpen) return null;
 
   return (
+    <ModalDialog label="Token security and liquidity audit" onClose={onClose} busy={false}>
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-150">
       <div 
         className="w-full max-w-xl bg-slate-900 border border-slate-800 rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
@@ -115,7 +130,7 @@ export const TokenAuditModal: React.FC<TokenAuditModalProps> = ({
               <RefreshCw className={`w-4 h-4 ${isLoadingSecurity || isLoadingLiquidity ? 'animate-spin' : ''}`} />
             </button>
             <button
-              onClick={onClose}
+              aria-label="Close" disabled={false} onClick={onClose}
               className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-lg transition-colors"
             >
               <X className="w-4 h-4" />
@@ -426,5 +441,6 @@ export const TokenAuditModal: React.FC<TokenAuditModalProps> = ({
         </div>
       </div>
     </div>
+    </ModalDialog>
   );
 };
