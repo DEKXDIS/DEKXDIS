@@ -239,6 +239,8 @@ export const storageService = {
   clearWindowLayouts(): void {
     try {
       removeRaw(STORAGE_KEYS.WINDOW_LAYOUTS);
+      removeRaw('haven_defi_terminal_window_layouts_v3');
+      removeRaw('haven_defi_terminal_window_layouts_v3_no_strategy');
     } catch (e) {
       console.error('Failed to clear window layouts', e);
     }
@@ -634,9 +636,9 @@ export const storageService = {
       if (val !== null) {
         return JSON.parse(val);
       }
-      return true; // Defaults to true on startup as requested
+      return false; // Fresh installs open the default token workspace.
     } catch {
-      return true;
+      return false;
     }
   },
 

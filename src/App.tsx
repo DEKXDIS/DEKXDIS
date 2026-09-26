@@ -1,4 +1,5 @@
 import { STRATEGIES_ENABLED } from './config/releaseFeatures';
+import { getDefaultLayouts } from './utils/defaultWorkspaceLayout';
 import { bridgeJournal } from './services/bridgeJournal';
 import { nativeStore } from './services/nativeStore';
 import { executionEngine, exclusive } from './services/executionEngine';
@@ -243,60 +244,6 @@ export const App: React.FC = () => {
     height: typeof window !== 'undefined' ? window.innerHeight - 100 : 900,
   });
 
-  // Calculate default layouts dynamically
-  const getDefaultLayouts = useCallback((width: number, height: number): Record<string, WindowLayout> => {
-    // Wallet/manual trading now opens from the metrics strip. Keep the strategy
-    // column's previous approximate width and give the freed column to the chart.
-    const margin = Math.max(8, Math.min(12, Math.round(width * 12 / 2560)));
-    const gap = Math.max(6, Math.min(10, Math.round(width * 6 / 2560)));
-    const usableWidth = Math.max(700, width - margin * 2 - (STRATEGIES_ENABLED ? gap : 0));
-    const ladderWidth = STRATEGIES_ENABLED ? Math.max(340, Math.floor(usableWidth * 430 / 2525)) : 0;
-    const leftWidth = Math.max(360, usableWidth - ladderWidth);
-    const ladderX = margin + leftWidth + gap;
-
-    const usableHeight = Math.max(380, height - margin * 2);
-    const heightScale = usableHeight / 921;
-    const rowGap = Math.max(7, Math.round(7 * heightScale));
-    const chartHeight = Math.max(200, Math.min(Math.floor(615 * heightScale), usableHeight - rowGap - 160));
-    const ordersHeight = Math.max(160, Math.min(Math.floor(271 * heightScale), usableHeight - rowGap - chartHeight));
-
-    return {
-      chart: {
-        id: 'chart',
-        title: STRATEGIES_ENABLED ? 'Multi-Token Live Chart & Signals' : 'Multi-Token Live Chart',
-        x: margin,
-        y: margin,
-        width: leftWidth,
-        height: chartHeight,
-        minWidth: 360,
-        minHeight: 200,
-        zIndex: 10,
-      },
-      orders: {
-        id: 'orders',
-        title: 'Trade & Intent Execution Log',
-        x: margin,
-        y: margin + chartHeight + rowGap,
-        width: leftWidth,
-        height: ordersHeight,
-        minWidth: 340,
-        minHeight: 160,
-        zIndex: 11,
-      },
-      ladder: {
-        id: 'ladder',
-        title: 'Automation',
-        x: ladderX,
-        y: margin,
-        width: ladderWidth,
-        height: Math.max(380, Math.floor(883 * heightScale)),
-        minWidth: 340,
-        minHeight: 380,
-        zIndex: 15,
-      },
-    };
-  }, []);
-
   // State for Impulse Ladder Window toggle (defaults to open on startup)
   const [isLadderOpen, setIsLadderOpen] = useState<boolean>(() => STRATEGIES_ENABLED && storageService.getIsLadderOpen());
 
@@ -404,13 +351,17 @@ export const App: React.FC = () => {
   };
 
   const handleResetLayout = () => {
-    autoDefaultLayout.current = false;
+    autoDefaultLayout.current = true;
     const defaults = getDefaultLayouts(canvasBounds.width, canvasBounds.height);
     setWindows(defaults);
+    setIsOverviewOpen(false);
+    setIsWalletTradeOpen(false);
     setIsChartOpen(true);
     setIsOrdersOpen(true);
-    storageService.saveWindowLayouts(defaults);
-    systemLogService.logInfo('SYSTEM', 'Layout Reset', 'All windows restored to default arrangement and saved.');
+    setIsLadderOpen(STRATEGIES_ENABLED);
+    storageService.saveIsLadderOpen(STRATEGIES_ENABLED);
+    storageService.clearWindowLayouts();
+    systemLogService.logInfo('SYSTEM', 'Layout Reset', 'Default workspace arrangement restored.');
   };
 
   // 1. Real-time WebSocket Price Subscription for currently selected token
