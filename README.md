@@ -42,7 +42,7 @@ The entire program runs on your own computer, all trades are signed by a wallet 
 The DEKXDIS software gives you a workspace for every token you want to trade, each workspace contains a chart, A trades window that tracks pending transactions, filled transactions, and cancel transactions, with fill price, timestamped.   You get a wallet dedicated on the page for the token workspace your on, that shows the balance of the token and the overall native wrapped token it trades with.  Everything is shown in USD for convenience but traded in wrapped native tokens to avoid multiple trades and saves you fees. There is also a manual swap to USDT for those down times.  You can view and place trades for different tokens its workspace page, and if you switch pages your trades are managed in the background and always running even if you switch to view a different token.
 
 This software is to make your trading easier with the lowest fees around; you can and will lose money trading.   The program is free to use, and the source code is on github.  You can build the program yourself and you can download the executable from the releases.  dekxdis.com is our website and has links to github and documents from there.  
-Experimental workspace automation uses saved prompts and settings for each token. It sends the model a fresh chart and trade snapshot, then places the requested buys or sells through the same order path as the manual chart form. TP and SL are optional. Buys use your configured trade amount; strategy sells use the actual tokens remaining from a bought position. Unsold-buy counts, per-token USD allowances and the last model response are visible in the Automation window. See [the user guide](docs/dekxdis-user-guide.html#automation) for setup and behavior.
+Experimental workspace automation uses saved prompts and settings for each token. It sends the model a fresh chart and trade snapshot, then places the requested buys or sells through the same order path as the manual chart form. TP and SL are optional. Buys use your configured trade amount; strategy sells use the actual tokens remaining from a bought position. Unsold-buy counts, per-token USD allowances and the last model response are visible in the Automation window. See [the user guide](https://dekxdis.com/user-guide.html#automation) for setup and behavior.
 
 dekxdis.com
 DEKXDIS@purelymail.com
@@ -50,7 +50,7 @@ DEKXDIS@purelymail.com
 
 ## Get started
 
-Download the Windows executable from [GitHub Releases](https://github.com/DEKXDIS/DEKXDIS/releases), run it, and follow the wallet setup. Keep your wallet backup safe. The [illustrated user guide](https://dekxdis.com/user-guide.html) explains each control; an offline copy is in `docs/dekxdis-user-guide.html`. Also can be view in the program selected in the top bar.  
+Download the Windows executable from [GitHub Releases](https://github.com/DEKXDIS/DEKXDIS/releases), run it, and follow the wallet setup. Keep your wallet backup safe. The [illustrated user guide](https://dekxdis.com/user-guide.html) explains each control and can also be opened from the program's top bar.
 
 ## Build on Windows
 

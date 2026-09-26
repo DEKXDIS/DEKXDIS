@@ -6,6 +6,7 @@ import { TokenConfig, MarketPrice } from '../types/trading';
 import { getChainConfig, DEFAULT_CHAIN_ID } from '../types/chains';
 import { VolumeData } from '../utils/indicators';
 import { systemLogService } from './systemLogService';
+import { volume24hUsd } from '../utils/marketVolume';
 
 const alphaTokenCache = new Map<string, TokenConfig>();
 const alphaTokensByChainCache = new Map<number, TokenConfig[]>();
@@ -188,10 +189,10 @@ export const marketDataService = {
       const price = parseFloat(d.lastPrice);
       return {
         price,
-        change24h: parseFloat(d.priceChangePercent || '0'),
+        change24h: parseFloat(d.priceChangePercent),
         high24h: parseFloat(d.highPrice || '0'),
         low24h: parseFloat(d.lowPrice || '0'),
-        volume24h: parseFloat(d.quoteVolume || '0'),
+        volume24h: volume24hUsd(d.quoteVolume, d.volume, price),
         lastUpdated: Date.now(),
         symbol: effectiveBinanceSymbol.replace('USDT', ''),
       };
@@ -206,10 +207,10 @@ export const marketDataService = {
       const data = await res.json();
       return {
         price: parseFloat(data.lastPrice),
-        change24h: parseFloat(data.priceChangePercent || '0'),
+        change24h: parseFloat(data.priceChangePercent),
         high24h: parseFloat(data.highPrice || '0'),
         low24h: parseFloat(data.lowPrice || '0'),
-        volume24h: parseFloat(data.quoteVolume || '0'),
+        volume24h: volume24hUsd(data.quoteVolume, data.volume, parseFloat(data.lastPrice)),
         lastUpdated: Date.now(),
         symbol: effectiveBinanceSymbol.replace('USDT', ''),
       };
@@ -242,8 +243,8 @@ export const marketDataService = {
       throw new Error(`Invalid price data returned from DEX pool for token ${tokenAddress}`);
     }
 
-    const change24h = parseFloat(attrs.price_change_percentage?.h24 || '0');
-    const volume24h = parseFloat(attrs.volume_usd?.h24 || '0');
+    const change24h = parseFloat(attrs.price_change_percentage?.h24);
+    const volume24h = volume24hUsd(attrs.volume_usd?.h24, undefined, priceUsd);
     const high24h = parseFloat(attrs.price_high_24h || '0');
     const low24h = parseFloat(attrs.price_low_24h || '0');
 

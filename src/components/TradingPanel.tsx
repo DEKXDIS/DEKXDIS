@@ -29,8 +29,6 @@ interface TradingPanelProps {
   balances: Balances;
   allowances: AllowanceState;
   marketPrice: MarketPrice;
-  slippage: number;
-  onUpdateSlippage: (value: number) => void;
   onTradeSubmitted: (orderId: string, orderData: any) => void;
   onRefreshBalances: () => void;
   onRequireWallet: () => void;
@@ -44,8 +42,6 @@ export const TradingPanel: React.FC<TradingPanelProps> = ({
   balances,
   allowances,
   marketPrice,
-  slippage,
-  onUpdateSlippage,
   onTradeSubmitted,
   onRefreshBalances,
   onRequireWallet,
@@ -63,9 +59,6 @@ export const TradingPanel: React.FC<TradingPanelProps> = ({
   const [usdtAmount, setUsdtAmount] = useState<string>('0');
   const [lastTokenAmount, setLastTokenAmount] = useState(() => storageService.getManualTradeAmount('sell'));
   const [lastUsdtAmount, setLastUsdtAmount] = useState(() => storageService.getManualTradeAmount('buy'));
-  const [slippageInput, setSlippageInput] = useState(String(slippage));
-  const validSlippage = slippageInput.trim() !== '' && Number.isFinite(Number(slippageInput)) && Number(slippageInput) >= 0 && Number(slippageInput) < 100;
-  useEffect(() => { setSlippageInput(String(slippage)); }, [slippage]);
   const [tokenMaxSelected, setTokenMaxSelected] = useState(false);
   const [usdtMaxSelected, setUsdtMaxSelected] = useState(false);
 
@@ -216,7 +209,6 @@ export const TradingPanel: React.FC<TradingPanelProps> = ({
   // Execute Trade: Token -> wrapped native
   const handleTradeTokenToUsdt = async () => {
     if (tradeBusy.current || submission.blocked) return;
-    if (!validSlippage) { submission.onError(new Error('Enter a slippage percentage from 0 to less than 100.')); systemLogService.logWarning('SWAP', 'Invalid Slippage', 'Enter a percentage from 0 to less than 100.', chainId); return; }
     if (!wallet) {
       onRequireWallet();
       return;
@@ -286,7 +278,7 @@ export const TradingPanel: React.FC<TradingPanelProps> = ({
         explorerUrl: '',
         chainId,
       };
-      const orderUid = await cowProtocol.signAndSubmitOrder(quote, signer, slippage, chainId, async uid => {
+      const orderUid = await cowProtocol.signAndSubmitOrder(quote, signer, chainId, async uid => {
         order.id = uid; order.explorerUrl = cowProtocol.getExplorerUrl(uid);
         storageService.addOrder(order); await storageService.flush();
       });
@@ -317,7 +309,6 @@ export const TradingPanel: React.FC<TradingPanelProps> = ({
   // Execute Trade: wrapped native -> Token
   const handleTradeUsdtToToken = async () => {
     if (tradeBusy.current || submission.blocked) return;
-    if (!validSlippage) { submission.onError(new Error('Enter a slippage percentage from 0 to less than 100.')); systemLogService.logWarning('SWAP', 'Invalid Slippage', 'Enter a percentage from 0 to less than 100.', chainId); return; }
     if (!wallet) {
       onRequireWallet();
       return;
@@ -386,7 +377,7 @@ export const TradingPanel: React.FC<TradingPanelProps> = ({
         explorerUrl: '',
         chainId,
       };
-      const orderUid = await cowProtocol.signAndSubmitOrder(quote, signer, slippage, chainId, async uid => {
+      const orderUid = await cowProtocol.signAndSubmitOrder(quote, signer, chainId, async uid => {
         order.id = uid; order.explorerUrl = cowProtocol.getExplorerUrl(uid);
         storageService.addOrder(order); await storageService.flush();
       });
@@ -472,19 +463,6 @@ export const TradingPanel: React.FC<TradingPanelProps> = ({
         </div>
         <div className="flex items-center gap-2 text-[10px] text-slate-400 font-mono">
           <span>{livePrice > 0 ? `1 ${tokenSymbol} ≈ $${formatTokenDisplay(livePrice)}` : `${tokenSymbol} price unavailable`}</span>
-          <span>|</span>
-          <label className="flex items-center gap-1" title="Minimum received tolerance. Uses the same setting as Settings.">
-            Slippage
-            <input type="number" min="0" max="99.99" step="0.01" aria-label="Slippage percent"
-              value={slippageInput} aria-invalid={!validSlippage}
-              disabled={isExecutingTokenTrade || isExecutingUsdtTrade}
-              onChange={e => {
-                const value = e.target.value;
-                setSlippageInput(value);
-                if (value.trim() !== '' && Number.isFinite(Number(value)) && Number(value) >= 0 && Number(value) < 100) onUpdateSlippage(Number(value));
-              }}
-              className="w-16 bg-slate-900 border border-slate-700 rounded px-1 py-0.5 text-white" />%
-          </label>
         </div>
       </div>
 
@@ -590,7 +568,7 @@ export const TradingPanel: React.FC<TradingPanelProps> = ({
           {/* BUTTON 1: SELL TOKEN */}
           <button
             onClick={handleTradeTokenToUsdt}
-            disabled={submission.blocked || !validSlippage || selfPair || quotePrice <= 0 || isExecutingUsdtTrade || livePrice <= 0 || balances.isLoading || isExecutingTokenTrade || !tokenUsdAmount || parseFloat(tokenUsdAmount) <= 0}
+            disabled={submission.blocked || selfPair || quotePrice <= 0 || isExecutingUsdtTrade || livePrice <= 0 || balances.isLoading || isExecutingTokenTrade || !tokenUsdAmount || parseFloat(tokenUsdAmount) <= 0}
             className="btn-tactile w-full py-2.5 rounded-xl bg-theme-gradient-reverse text-white font-extrabold text-xs tracking-wide flex items-center justify-center gap-1.5 transition-all shadow-glow-secondary disabled:opacity-50 disabled:cursor-not-allowed uppercase shrink-0 cursor-pointer"
           >
             {isExecutingTokenTrade ? (
@@ -704,7 +682,7 @@ export const TradingPanel: React.FC<TradingPanelProps> = ({
           {/* BUTTON 2: BUY TOKEN */}
           <button
             onClick={handleTradeUsdtToToken}
-            disabled={submission.blocked || !validSlippage || selfPair || quotePrice <= 0 || isExecutingTokenTrade || isExecutingUsdtTrade || !usdtAmount || parseFloat(usdtAmount) <= 0}
+            disabled={submission.blocked || selfPair || quotePrice <= 0 || isExecutingTokenTrade || isExecutingUsdtTrade || !usdtAmount || parseFloat(usdtAmount) <= 0}
             className="btn-tactile w-full py-2.5 rounded-xl bg-theme-gradient text-slate-950 font-extrabold text-xs tracking-wide flex items-center justify-center gap-1.5 transition-all shadow-glow-primary disabled:opacity-50 disabled:cursor-not-allowed uppercase shrink-0 cursor-pointer"
           >
             {isExecutingUsdtTrade ? (
@@ -728,7 +706,6 @@ export const TradingPanel: React.FC<TradingPanelProps> = ({
         <span className="flex items-center gap-1 text-theme-primary">
           <ShieldCheck className="w-3 h-3 text-theme-primary" /> CoW Protocol MEV Protected
         </span>
-        <span className="text-slate-500">CoW Protocol · DEKXDIS: 25% of surplus, capped at 1% of volume · no flat DEKXDIS fee</span>
       </div>
 
     </div>

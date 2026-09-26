@@ -570,7 +570,7 @@ export const executionEngine = {
       active(store.getOrders().find(o => o.id === stop.id) || { ...stop, status: 'cancelled' }) &&
       !ocoPeers(stop).some(o => !o.isConditional && o.status === 'fulfilled');
     if (!canSubmit()) return;
-    await cow.signAndSubmitOrder(quote, web3.getSigner(wallet.address, stop.chainId), store.getStopLossSlippage(), stop.chainId,
+    await cow.signAndSubmitOrder(quote, web3.getSigner(wallet.address, stop.chainId), stop.chainId,
       async uid => {
         if (!canSubmit()) throw new Error('Stop submission stopped: wallet/order changed or opposite order filled');
         await addOrder({ ...stop, quoteUsdPrice: undefined, executionPrice: 0, id: uid, isConditional: false, status: 'pending', previousOrderId: stop.id, limitPrice: undefined, triggerPrice: undefined, buyAmount: ethers.formatUnits(quote.quote.buyAmount, stop.buyDecimals), validTo: quote.quote.validTo, explorerUrl: cow.getExplorerUrl(uid), protectionError: undefined });

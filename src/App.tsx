@@ -2,7 +2,7 @@ import { STRATEGIES_ENABLED, getStrategiesEnabled, subscribeReleaseFeatures } fr
 import { bridgeJournal } from './services/bridgeJournal';
 import { nativeStore } from './services/nativeStore';
 import { executionEngine, exclusive } from './services/executionEngine';
-import React, { useState, useSyncExternalStore, useEffect, useCallback, useRef, useMemo } from 'react';
+import React, { useState, useSyncExternalStore, useEffect, useCallback, useRef, useMemo, useId } from 'react';
 import { Header } from './components/Header';
 import { WalletCard } from './components/WalletCard';
 import { WalletTradeDropdown } from './components/WalletTradeDropdown';
@@ -11,7 +11,7 @@ import { TradingViewChart } from './components/TradingViewChart';
 import { TradeMetrics } from './components/TradeMetrics';
 import { OrderHistory } from './components/OrderHistory';
 import { historyTokenSide } from './utils/orderHistory';
-import { orderFundingStatus, OrderFundingSnapshot, OrderFundingStatus } from './utils/orderFunding';
+import { orderFundingStatus, OrderFundingStatus } from './utils/orderFunding';
 import { AutomationWindow } from './automation/AutomationWindow';
 import { automation } from './automation/runner';
 import { WalletModal } from './components/WalletModal';
@@ -35,9 +35,6 @@ import { ThemeId } from './types/theme';
 
 import { 
   WalletState, 
-  WalletValuation,
-  Balances, 
-  AllowanceState, 
   TradeOrder, 
   MarketPrice, 
   ChartMarker,
@@ -48,6 +45,7 @@ import {
 import { DEFAULT_CHAIN_ID, getChainConfig, getTokensForChain } from './types/chains';
 import { storageService } from './services/storageService';
 import { web3Service } from './services/web3Service';
+import { useWalletBalances } from './hooks/useWalletBalances';
 import { rpcService } from './services/rpcService';
 import { cowProtocol } from './services/cowProtocol';
 import { marketDataService } from './services/marketDataService';
@@ -86,31 +84,13 @@ export const App: React.FC = () => {
     return alphaTokensByChain[selectedChainId] || marketDataService.getCachedAlphaTokens(selectedChainId);
   }, [alphaTokensByChain, selectedChainId]);
 
-  const [balances, setBalances] = useState<Balances>({
-    bnb: '0.0000',
-    wbnb: '0.0000',
-    usdt: '0.00',
-    totalUsdValue: '0.00',
-    isLoading: false,
-    lastUpdated: Date.now(),
-    tokenBalances: {},
-  });
-  const [allowances, setAllowances] = useState<AllowanceState>({
-    wbnbAllowed: false,
-    usdtAllowed: false,
-    isChecking: false,
-    tokenAllowances: {},
-  });
+  const { balances, allowances, fundingSnapshot, walletValuation, chainBalances, isLoadingBalances, refreshBalances } =
+    useWalletBalances(wallet?.address, selectedChainId, selectedToken, customTokens);
   const [orders, setOrders] = useState<TradeOrder[]>(() => storageService.getOrders());
   const accountingHistory = useMemo(() => {
     try { return { orders: storageService.getAccountingOrders(orders), error: undefined }; }
     catch (error) { return { orders, error: `Accounting history unavailable: ${String(error)}` }; }
   }, [orders]);
-  const [fundingSnapshot, setFundingSnapshot] = useState<OrderFundingSnapshot>();
-  const [walletValuation, setWalletValuation] = useState<WalletValuation>();
-  const reportedValuationErrors = useRef(new Map<string, string>());
-  const valuationsInFlight = useRef(new Set<string>());
-  const blockedValuations = useRef(new Set<string>());
   const fundingStatuses = useMemo(() => {
     const result = new Map<string, OrderFundingStatus>();
     const snapshot = fundingSnapshot?.ownerAddress.toLowerCase() === wallet?.address.toLowerCase() &&
@@ -161,10 +141,10 @@ export const App: React.FC = () => {
 
   const [marketPrice, setMarketPrice] = useState<MarketPrice>({
     price: 0,
-    change24h: 0,
+    change24h: NaN,
     high24h: 0,
     low24h: 0,
-    volume24h: 0,
+    volume24h: NaN,
     lastUpdated: Date.now(),
     symbol: selectedToken.symbol,
   });
@@ -173,9 +153,12 @@ export const App: React.FC = () => {
   const [nativePriceSnapshot, setNativePriceSnapshot] = useState<{ chainId: number; price: number; timestamp: number }>();
   const [tokenPriceSnapshot, setTokenPriceSnapshot] = useState<{ chainId: number; address: string; price: number; timestamp: number }>();
 
-  const [slippage, setSlippage] = useState<number>(() => storageService.getSlippage());
-  const [stopLossSlippage, setStopLossSlippage] = useState<number>(() => storageService.getStopLossSlippage());
   const [isOverviewOpen, setIsOverviewOpen] = useState<boolean>(() => storageService.getIsOverviewOpen());
+  const [isWalletTradeOpen, setIsWalletTradeOpen] = useState(false);
+  const walletTradeButtonRef = useRef<HTMLButtonElement>(null);
+  const walletTradePanelId = useId();
+  const [isChartOpen, setIsChartOpen] = useState(true);
+  const [isOrdersOpen, setIsOrdersOpen] = useState(true);
   const [currentTheme, setCurrentTheme] = useState<ThemeId>(() => storageService.getTheme());
   const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
   const [walletChangeWarning, setWalletChangeWarning] = useState<{ ladderCount: number; orderCount: number } | null>(null);
@@ -320,6 +303,13 @@ export const App: React.FC = () => {
 
   const handleToggleLadder = () => {
     if (!STRATEGIES_ENABLED) return;
+    if (windows.ladder?.isMinimized) {
+      handleUpdateLayout('ladder', { isMinimized: false });
+      setIsOverviewOpen(false);
+      setIsLadderOpen(true);
+      storageService.saveIsLadderOpen(true);
+      return;
+    }
     if (isOverviewOpen) {
       setIsOverviewOpen(false);
       setIsLadderOpen(true);
@@ -428,6 +418,8 @@ export const App: React.FC = () => {
     autoDefaultLayout.current = false;
     const defaults = getDefaultLayouts(canvasBounds.width, canvasBounds.height);
     setWindows(defaults);
+    setIsChartOpen(true);
+    setIsOrdersOpen(true);
     storageService.saveWindowLayouts(defaults);
     systemLogService.logInfo('SYSTEM', 'Layout Reset', 'All windows restored to default arrangement and saved.');
   };
@@ -528,7 +520,7 @@ export const App: React.FC = () => {
 
   // Market Price Fetch for selected token (REST fallback / on-chain DEX query)
   const assetGeneration = useRef(0);
-  useEffect(() => { assetGeneration.current++; setMarketPrice(p => ({ ...p, price: 0 })); setNativePrice(0); setCandles([]); }, [selectedToken.address, selectedChainId, wallet?.address]);
+  useEffect(() => { assetGeneration.current++; setMarketPrice(p => ({ ...p, price: 0, change24h: NaN, volume24h: NaN })); setNativePrice(0); setCandles([]); }, [selectedToken.address, selectedChainId, wallet?.address]);
   const refreshMarketPrice = useCallback(async () => {
     const generation = assetGeneration.current;
     setIsPriceLoading(true);
@@ -593,85 +585,6 @@ export const App: React.FC = () => {
       Math.max(0, nativePriceSnapshot.timestamp + 30000 - Date.now()));
     return () => clearTimeout(timer);
   }, [nativePriceSnapshot]);
-
-  // Balance & Allowance Refresh
-  const balanceRequest = useRef(0);
-  const refreshBalances = useCallback(async (retryWalletValue = false) => {
-    if (!wallet) return;
-    const valuationKey = `${selectedChainId}:${wallet.address.toLowerCase()}`;
-    // One valuation attempt per refresh; a terminal failure requires explicit retry.
-    // Ordinary balance polling must not restart a failed price request forever.
-    if (retryWalletValue === true) blockedValuations.current.delete(valuationKey);
-    const request = ++balanceRequest.current;
-    const generation = assetGeneration.current;
-    setBalances((prev) => ({ ...prev, isLoading: true }));
-    try {
-      const chainCustomTokens = customTokens.filter((t) => (t.chainId || DEFAULT_CHAIN_ID) === selectedChainId);
-      const orderTokens = storageService.getOrders().filter(order => order.chainId === selectedChainId &&
-        order.ownerAddress?.toLowerCase() === wallet.address.toLowerCase() &&
-        (order.status === 'open' || order.status === 'pending') && order.sellDecimals !== undefined)
-        .map(order => ({ address: order.sellToken, symbol: order.sellSymbol, name: order.sellSymbol,
-          decimals: order.sellDecimals!, chainId: selectedChainId }));
-      const activeTokensToQuery = [selectedToken, ...chainCustomTokens, ...storageService.getTrackedTokens(selectedChainId), ...orderTokens];
-
-      const { balances: newBalances, allowances: newAllowances } = await web3Service.getBalancesAndAllowances(
-        wallet.address,
-        selectedChainId,
-        nativePrice,
-        activeTokensToQuery,
-        true
-      );
-      if (generation === assetGeneration.current && request === balanceRequest.current) {
-        setBalances(newBalances); setAllowances(newAllowances);
-        setFundingSnapshot({ ownerAddress: wallet.address, chainId: selectedChainId, balances: newBalances });
-        // Display prices must not hold up refreshed balances or the calling trade.
-        const valuationContext = { ownerAddress: wallet.address, chainId: selectedChainId, balanceUpdatedAt: newBalances.lastUpdated };
-        const inFlightKey = `${generation}:${valuationKey}`;
-        if (!blockedValuations.current.has(valuationKey) && !valuationsInFlight.current.has(inFlightKey)) {
-          valuationsInFlight.current.add(inFlightKey);
-          void web3Service.getWalletUsdValue(newBalances, selectedChainId, activeTokensToQuery).then(value => {
-            if (generation !== assetGeneration.current) return;
-            setWalletValuation({ ...valuationContext, ...value, updatedAt: Date.now() });
-            if (reportedValuationErrors.current.delete(valuationKey)) {
-              systemLogService.logInfo('WALLET', 'Wallet valuation recovered', `USD values refreshed for ${wallet.address}`, selectedChainId);
-            }
-          }).catch(error => {
-            if (generation !== assetGeneration.current) return;
-            blockedValuations.current.add(valuationKey);
-            const message = error instanceof Error ? error.message : String(error);
-            setWalletValuation(previous => ({ ...valuationContext,
-              ...(previous?.chainId === selectedChainId && previous.ownerAddress.toLowerCase() === wallet.address.toLowerCase()
-                ? { totalUsdValue: previous.totalUsdValue, tokenPricesUsd: previous.tokenPricesUsd, updatedAt: previous.updatedAt } : {}), error: message }));
-            if (reportedValuationErrors.current.get(valuationKey) !== message) {
-              reportedValuationErrors.current.set(valuationKey, message);
-              systemLogService.logError('WALLET', 'Wallet valuation failed', `${wallet.address}: ${message}. Use Refresh Balances in wallet/trade to retry.`, selectedChainId);
-            }
-          }).finally(() => { valuationsInFlight.current.delete(inFlightKey); });
-        }
-      }
-    } catch (e: any) {
-      systemLogService.logError(
-        'NETWORK',
-        `Balance Refresh Failed (Chain ${selectedChainId})`,
-        e?.message || String(e),
-        selectedChainId
-      );
-      if (generation === assetGeneration.current) {
-        setBalances(prev => ({ ...prev, error: e?.message || String(e) }));
-        if (request === balanceRequest.current) setFundingSnapshot(prev => prev && ({ ...prev, balances: { ...prev.balances, error: e?.message || String(e) } }));
-      }
-    } finally {
-      if (generation === assetGeneration.current) setBalances((prev) => ({ ...prev, isLoading: false }));
-    }
-  }, [wallet, nativePrice, customTokens, selectedToken, selectedChainId]);
-
-  useEffect(() => {
-    if (wallet) {
-      refreshBalances();
-      const interval = setInterval(refreshBalances, 12000);
-      return () => clearInterval(interval);
-    }
-  }, [wallet, refreshBalances]);
 
   // A stable scheduler owns order reconciliation/protection independently of price renders.
   const syncOrderStatuses = useCallback(async () => {
@@ -907,15 +820,6 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleUpdateSlippage = (val: number) => {
-    setSlippage(val);
-    storageService.saveSlippage(val);
-  };
-
-  const handleUpdateStopLossSlippage = (val: number) => {
-    setStopLossSlippage(val);
-    storageService.saveStopLossSlippage(val);
-  };
 
   // Chain & Token Switch Handlers
   const handleSelectChain = (newChainId: number) => {
@@ -1042,8 +946,27 @@ export const App: React.FC = () => {
         onOpenTokenAudit={() => setIsTokenAuditModalOpen(true)}
         isOverviewOpen={isOverviewOpen}
         onToggleOverview={() => setIsOverviewOpen((prev) => !prev)}
-        isLadderOpen={isLadderOpen}
+        isLadderOpen={!isOverviewOpen && isLadderOpen && !windows.ladder?.isMinimized}
         onToggleLadder={STRATEGIES_ENABLED ? handleToggleLadder : undefined}
+        isWalletTradeOpen={isWalletTradeOpen && !isOverviewOpen && !isWalletModalOpen && !isWrapModalOpen && !walletChangeWarning && !isLimitModalOpen}
+        walletTradeButtonRef={walletTradeButtonRef}
+        walletTradePanelId={walletTradePanelId}
+        onToggleWalletTrade={() => {
+          setIsOverviewOpen(false);
+          setIsWalletTradeOpen(open => isOverviewOpen || !open);
+        }}
+        isOrdersOpen={!isOverviewOpen && isOrdersOpen && !windows.orders?.isMinimized}
+        onToggleOrders={() => {
+          setIsOrdersOpen(isOverviewOpen || !isOrdersOpen || !!windows.orders?.isMinimized);
+          setIsOverviewOpen(false);
+          handleUpdateLayout('orders', { isMinimized: false });
+        }}
+        isChartOpen={!isOverviewOpen && isChartOpen && !windows.chart?.isMinimized}
+        onToggleChart={() => {
+          setIsChartOpen(isOverviewOpen || !isChartOpen || !!windows.chart?.isMinimized);
+          setIsOverviewOpen(false);
+          handleUpdateLayout('chart', { isMinimized: false });
+        }}
       />
 
       {/* Workspace-only bar stays mounted so dismissing a trade never resets it. */}
@@ -1057,7 +980,11 @@ export const App: React.FC = () => {
           selectedTokenSymbol={selectedToken.symbol}
           walletTradeCard={
             <WalletTradeDropdown
-              onRefreshBalances={() => { void refreshBalances(true); void refreshNativePrice(); }}
+              isOpen={isWalletTradeOpen}
+              setIsOpen={setIsWalletTradeOpen}
+              buttonRef={walletTradeButtonRef}
+              panelId={walletTradePanelId}
+              onRefreshBalances={() => { void refreshBalances(); void refreshNativePrice(); }}
               chainId={selectedChainId}
               walletAddress={wallet?.address}
               balanceSnapshot={fundingSnapshot}
@@ -1093,7 +1020,7 @@ export const App: React.FC = () => {
                   setIsWalletModalOpen(true);
                 }}
                 onOpenWrapModal={() => setIsWrapModalOpen(true)}
-                onRefreshBalances={() => refreshBalances(true)}
+                onRefreshBalances={() => refreshBalances()}
                 onApproveToken={handleApproveToken}
                 isApproving={isApproving}
               />
@@ -1105,8 +1032,6 @@ export const App: React.FC = () => {
                 balances={balances}
                 allowances={allowances}
                 marketPrice={marketPrice}
-                slippage={slippage}
-                onUpdateSlippage={handleUpdateSlippage}
                 onTradeSubmitted={handleTradeSubmitted}
                 onRefreshBalances={refreshBalances}
                 onRequireWallet={() => {
@@ -1121,6 +1046,9 @@ export const App: React.FC = () => {
 
       {isOverviewOpen ? (
         <OverviewDashboard
+          chainBalances={chainBalances}
+          isLoadingBalances={isLoadingBalances}
+          onRefreshBalances={refreshBalances}
           onSwitchWallet={handleSwitchWallet}
           onOpenWalletSetup={() => {
             setWalletModalMode('import');
@@ -1151,7 +1079,6 @@ export const App: React.FC = () => {
           allOrders={accountingHistory.orders}
           accountingError={accountingHistory.error}
           onCancelOrder={handleCancelOrder}
-          onToggleOverview={() => setIsOverviewOpen(false)}
           customTokens={customTokens}
           strategyConfig={strategyConfig}
           onUpdateStrategyConfig={handleUpdateStrategyConfig}
@@ -1165,6 +1092,7 @@ export const App: React.FC = () => {
           >
         {/* WINDOW 1: LIVE CHART & SIGNALS */}
         {windows.chart && (
+          <div hidden={!isChartOpen}>
           <DraggableResizableWindow
             layout={windows.chart}
             onUpdateLayout={handleUpdateLayout}
@@ -1182,15 +1110,18 @@ export const App: React.FC = () => {
               onPriceSelected={handleChartPriceClick}
               onCancelOrder={handleCancelOrder}
               livePrice={marketPrice.price}
+              change24h={marketPrice.change24h}
               nativePriceSnapshot={nativePriceSnapshot}
               onCandlesUpdated={setCandles}
               onIntervalChange={setActiveChartTimeframe}
             />
           </DraggableResizableWindow>
+          </div>
         )}
 
         {/* WINDOW 2: TRADE & INTENT EXECUTION LOG */}
         {windows.orders && (
+          <div hidden={!isOrdersOpen}>
           <DraggableResizableWindow
             layout={windows.orders}
             onUpdateLayout={handleUpdateLayout}
@@ -1210,6 +1141,7 @@ export const App: React.FC = () => {
               isRefreshing={isSyncingOrders}
             />
           </DraggableResizableWindow>
+          </div>
         )}
 
         {/* AUTOMATION WINDOW */}
@@ -1295,10 +1227,6 @@ export const App: React.FC = () => {
       <SettingsModal
         isOpen={isSettingsModalOpen}
         onClose={() => setIsSettingsModalOpen(false)}
-        slippage={slippage}
-        onUpdateSlippage={handleUpdateSlippage}
-        stopLossSlippage={stopLossSlippage}
-        onUpdateStopLossSlippage={handleUpdateStopLossSlippage}
         currentTheme={currentTheme}
         onSelectTheme={handleSelectTheme}
       />

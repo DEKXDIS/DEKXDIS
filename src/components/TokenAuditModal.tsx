@@ -1,4 +1,5 @@
 import { ModalDialog } from './ModalDialog';
+import { isTauri } from '@tauri-apps/api/core';
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   X, 
@@ -21,6 +22,7 @@ import { TokenConfig } from '../types/trading';
 import { getChainConfig } from '../types/chains';
 import { goPlusSecurityService, TokenSecurityReport } from '../services/goPlusSecurityService';
 import { dexLiquidityService, TokenLiquidityReport } from '../services/dexLiquidityService';
+import { openExplorerLink } from '../services/explorerLinks';
 
 interface TokenAuditModalProps {
   isOpen: boolean;
@@ -168,6 +170,11 @@ const TokenAuditContent: React.FC<TokenAuditModalProps> = ({
             </div>
             <a
               href={chainConfig.addressUrl(token.address)}
+              onClick={event => {
+                if (!isTauri()) return;
+                event.preventDefault();
+                void openExplorerLink(chainConfig.addressUrl(token.address));
+              }}
               target="_blank"
               rel="noreferrer"
               className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 px-2 py-1 bg-indigo-500/10 rounded-md transition-colors"

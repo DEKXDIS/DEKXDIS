@@ -1,6 +1,7 @@
 import { CandlestickData, Time } from 'lightweight-charts';
 import { TokenConfig } from '../types/trading';
 import { marketDataService } from './marketDataService';
+import { volume24hUsd } from '../utils/marketVolume';
 
 export interface WebSocketPriceUpdate {
   symbol: string;
@@ -330,7 +331,7 @@ class BinanceWebSocketService {
           price: parseFloat(msg.c),
           high24h: parseFloat(msg.h),
           low24h: parseFloat(msg.l),
-          volume24h: parseFloat(msg.q),
+          volume24h: volume24hUsd(msg.q, msg.v, parseFloat(msg.c)),
           change24h: parseFloat(msg.P),
           timestamp: Number(msg.E) || Date.now(),
         };
@@ -452,8 +453,8 @@ class BinanceWebSocketService {
           price,
           high24h: parseFloat(payload.h || '0'),
           low24h: parseFloat(payload.l || '0'),
-          volume24h: parseFloat(payload.v || payload.q || '0'),
-          change24h: parseFloat(payload.P || '0'),
+          volume24h: volume24hUsd(payload.q, payload.v, price),
+          change24h: parseFloat(payload.P),
           timestamp: Number(payload.E) || Date.now(),
         };
 

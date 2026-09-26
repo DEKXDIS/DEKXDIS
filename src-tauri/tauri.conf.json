@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "DEKXDIS",
-  "version": "1.2.14",
+  "version": "1.2.15",
   "identifier": "com.antigravity.haven-defi-terminal",
   "build": {
     "frontendDist": "../dist",

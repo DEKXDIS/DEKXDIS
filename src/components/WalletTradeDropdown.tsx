@@ -1,5 +1,5 @@
-import React, { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
-import { ChevronDown } from 'lucide-react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { getChainConfig, getTradingQuoteToken } from '../types/chains';
 import type { OrderFundingSnapshot } from '../utils/orderFunding';
 import type { TokenConfig, WalletValuation } from '../types/trading';
@@ -17,6 +17,10 @@ export interface WalletTradeDropdownProps {
   onRefreshBalances: () => void;
   isWorkspaceActive: boolean;
   isModalOpen: boolean;
+  isOpen: boolean;
+  setIsOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  buttonRef: React.RefObject<HTMLButtonElement>;
+  panelId: string;
   children: React.ReactNode;
 }
 
@@ -24,14 +28,11 @@ export interface WalletTradeDropdownProps {
 export const WalletTradeDropdown: React.FC<WalletTradeDropdownProps> = ({
   chainId, walletAddress, balanceSnapshot, nativePriceSnapshot,
   selectedToken, tokenPriceSnapshot, walletValuation, onRefreshBalances,
-  isWorkspaceActive, isModalOpen, children,
+  isWorkspaceActive, isModalOpen, isOpen, setIsOpen, buttonRef, panelId, children,
 }) => {
-  const [isOpen, setIsOpen] = useState(false);
   const [position, setPosition] = useState({ top: 0, left: 0, width: 620, maxHeight: 500 });
   const [now, setNow] = useState(Date.now);
-  const buttonRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
-  const panelId = useId();
   const token = getTradingQuoteToken(chainId);
   const chain = getChainConfig(chainId);
   const visible = isOpen && isWorkspaceActive && !isModalOpen;
@@ -39,7 +40,7 @@ export const WalletTradeDropdown: React.FC<WalletTradeDropdownProps> = ({
 
   useEffect(() => {
     if (!isWorkspaceActive || isModalOpen) setIsOpen(false);
-  }, [isWorkspaceActive, isModalOpen]);
+  }, [isWorkspaceActive, isModalOpen, setIsOpen]);
 
   // Expire display valuation even if no other state changes after a failed refresh.
   useEffect(() => {
@@ -58,7 +59,7 @@ export const WalletTradeDropdown: React.FC<WalletTradeDropdownProps> = ({
       if (!button) return;
       const anchor = button.getBoundingClientRect();
       const width = Math.min(620, window.innerWidth - 24);
-      const top = (button.parentElement?.getBoundingClientRect().bottom ?? anchor.bottom) + 8;
+      const top = anchor.bottom + 8;
       setPosition({
         top, width,
         left: Math.max(12, Math.min(anchor.right - width, window.innerWidth - width - 12)),
@@ -79,7 +80,7 @@ export const WalletTradeDropdown: React.FC<WalletTradeDropdownProps> = ({
       window.removeEventListener('resize', place);
       window.removeEventListener('scroll', place, true);
     };
-  }, [visible]);
+  }, [visible, buttonRef]);
 
   useEffect(() => {
     if (!visible) return;
@@ -99,7 +100,7 @@ export const WalletTradeDropdown: React.FC<WalletTradeDropdownProps> = ({
       document.removeEventListener('pointerdown', outside, true);
       document.removeEventListener('keydown', escape);
     };
-  }, [visible]);
+  }, [visible, buttonRef, setIsOpen]);
 
   const snapshot = walletAddress && balanceSnapshot?.chainId === chainId &&
     balanceSnapshot.ownerAddress.toLowerCase() === walletAddress.toLowerCase() ? balanceSnapshot : undefined;
@@ -124,7 +125,7 @@ export const WalletTradeDropdown: React.FC<WalletTradeDropdownProps> = ({
   const showSelected = selected && selected.address.toLowerCase() !== token.address.toLowerCase();
 
   return (
-    <div className="bg-surface/90 border border-surface-border rounded-xl px-3.5 py-2 flex items-center justify-between gap-3 shadow-sm min-w-0 col-span-2 xl:col-span-1">
+    <div className="bg-surface/90 border border-surface-border rounded-xl px-3.5 py-2 flex items-center justify-between gap-3 shadow-sm min-w-0 col-span-2 lg:col-span-4 2xl:col-span-1">
       <div className="min-w-0 flex-1 flex items-center gap-4 overflow-x-auto">
         <div className="shrink-0 whitespace-nowrap">
         <span className="text-[10px] text-slate-400 font-medium uppercase tracking-wider block">{token.symbol} · {chain.shortName}</span>
@@ -153,17 +154,12 @@ export const WalletTradeDropdown: React.FC<WalletTradeDropdownProps> = ({
           </span>}
         </div>}
       </div>
-      <button ref={buttonRef} type="button" aria-expanded={visible} aria-controls={panelId}
-        onClick={() => setIsOpen(open => !open)}
-        className={`btn-tactile shrink-0 flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-bold border ${visible ? 'bg-theme-primary-20 border-theme-primary text-theme-primary' : 'bg-slate-900 border-slate-700 text-slate-200 hover:border-theme-primary hover:text-white'}`}>
-        wallet/trade <ChevronDown className={`w-3 h-3 transition-transform ${visible ? 'rotate-180' : ''}`} />
-      </button>
-      <div ref={panelRef} id={panelId} role="region" aria-label="Wallet and manual trade" tabIndex={-1}
+      {createPortal(<div ref={panelRef} id={panelId} role="region" aria-label="Wallet and manual trade" tabIndex={-1}
         hidden={!visible}
         style={{ ...position, display: visible ? 'block' : 'none' }}
-        className="wallet-trade-dropdown fixed z-10 overflow-y-auto overscroll-contain rounded-xl border border-slate-600 bg-surface shadow-2xl outline-none">
+        className="wallet-trade-dropdown fixed z-[150] overflow-y-auto overscroll-contain rounded-xl border border-slate-600 bg-surface shadow-2xl outline-none">
         {children}
-      </div>
+      </div>, document.body)}
     </div>
   );
 };

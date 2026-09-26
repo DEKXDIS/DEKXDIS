@@ -186,15 +186,6 @@ export const storageService = {
     return updated;
   },
 
-  getSlippage(): number {
-    try {
-      const val = getRaw(STORAGE_KEYS.SLIPPAGE);
-      return val ? parseFloat(val) : 0.5;
-    } catch {
-      return 0.5;
-    }
-  },
-
   getManualTradeAmount(side: 'buy' | 'sell'): string | null {
     return getRaw(`haven_defi_terminal_manual_trade_last_${side}`);
   },
@@ -202,31 +193,6 @@ export const storageService = {
   saveManualTradeAmount(side: 'buy' | 'sell', amount: string): void {
     if (!Number.isFinite(Number(amount)) || Number(amount) <= 0) throw new Error('Invalid manual trade USD amount');
     setRaw(`haven_defi_terminal_manual_trade_last_${side}`, amount);
-  },
-
-  saveSlippage(slippage: number): void {
-    try {
-      setRaw(STORAGE_KEYS.SLIPPAGE, slippage.toString());
-    } catch (e) {
-      console.error('Failed to save slippage', e);
-    }
-  },
-
-  getStopLossSlippage(): number {
-    try {
-      const val = getRaw(STORAGE_KEYS.STOP_LOSS_SLIPPAGE);
-      return val ? parseFloat(val) : 2.0;
-    } catch {
-      return 2.0;
-    }
-  },
-
-  saveStopLossSlippage(slippage: number): void {
-    try {
-      setRaw(STORAGE_KEYS.STOP_LOSS_SLIPPAGE, slippage.toString());
-    } catch (e) {
-      console.error('Failed to save stop loss slippage', e);
-    }
   },
 
   getAutoWrap(): boolean {

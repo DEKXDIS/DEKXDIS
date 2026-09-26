@@ -218,7 +218,7 @@ export const AssetMatrixWindow: React.FC<AssetMatrixWindowProps> = ({
           const quote = bridgeQuote.cowQuote;
           stage = 'Validating and signing CoW order';
           if (!quote || Date.now() - bridgeQuote.quotedAt! > 60000 || quote.quote.validTo * 1000 <= Date.now()) throw new Error('Swap quote expired. Request a fresh quote.');
-          hash = await cowProtocol.signAndSubmitOrder(quote, web3Service.getSigner(wallet.address, token1.chainId), 0.5, token1.chainId);
+          hash = await cowProtocol.signAndSubmitOrder(quote, web3Service.getSigner(wallet.address, token1.chainId), token1.chainId);
           message = 'Order submitted; awaiting fill in Order History';
         }
         const transfer = token1.chainId !== token2.chainId ? bridgeJournal.all(wallet.address).find(record => record.hash === hash) : undefined;

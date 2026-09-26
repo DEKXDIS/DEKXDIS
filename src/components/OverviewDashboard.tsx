@@ -5,10 +5,7 @@ import {
   TradeOrder, 
   StrategyConfig 
 } from '../types/trading';
-import { 
-  web3Service, 
-  ChainBalanceReport 
-} from '../services/web3Service';
+import type { ChainBalanceReport } from '../services/web3Service';
 import { storageService } from '../services/storageService';
 import { systemLogService } from '../services/systemLogService';
 import { 
@@ -26,7 +23,6 @@ import {
   DollarSign, 
   RefreshCw, 
   LayoutGrid, 
-  ChevronRight, 
   Layers, 
   Activity, 
   BarChart2, 
@@ -34,6 +30,9 @@ import {
 } from 'lucide-react';
 
 interface OverviewDashboardProps {
+  chainBalances: Record<number, ChainBalanceReport>;
+  isLoadingBalances: boolean;
+  onRefreshBalances: () => Promise<void>;
   onSwitchWallet: (address: string) => Promise<void>;
   onOpenWalletSetup: () => void;
   wallet: WalletState | null;
@@ -45,13 +44,15 @@ interface OverviewDashboardProps {
   allOrders: TradeOrder[];
   accountingError?: string;
   onCancelOrder: (orderId: string) => void;
-  onToggleOverview: () => void;
   customTokens: TokenConfig[];
   strategyConfig: StrategyConfig;
   onUpdateStrategyConfig: (config: StrategyConfig) => void;
 }
 
 export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
+  chainBalances,
+  isLoadingBalances,
+  onRefreshBalances: loadAllBalances,
   onSwitchWallet,
   onOpenWalletSetup,
   wallet,
@@ -63,7 +64,6 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
   allOrders,
   accountingError,
   onCancelOrder,
-  onToggleOverview,
   customTokens,
   strategyConfig,
   onUpdateStrategyConfig,
@@ -73,13 +73,6 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
     width: 1440,
     height: 900,
   });
-
-  // Multi-Chain Balances State
-  const [chainBalances, setChainBalances] = useState<Record<number, ChainBalanceReport>>({});
-  const [isLoadingBalances, setIsLoadingBalances] = useState<boolean>(true);
-  const [balanceError, setBalanceError] = useState('');
-  const balanceGeneration = useRef(0);
-  const balanceInFlight = useRef(false);
 
   const customLayoutRef = useRef(!!storageService.getOverviewWindowLayouts());
 
@@ -122,45 +115,6 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
     if (containerRef.current) observer.observe(containerRef.current);
     return () => observer.disconnect();
   }, []);
-
-  // Fetch Balances across all 5 chains strictly for order-tracked tokens
-  const loadAllBalances = useCallback(async () => {
-    if (!wallet || !wallet.address) {
-      setIsLoadingBalances(false);
-      return;
-    }
-    if (balanceInFlight.current) return;
-    balanceInFlight.current = true;
-    setIsLoadingBalances(true);
-    const generation = ++balanceGeneration.current;
-    try {
-      const tracked = storageService.getTrackedTokens();
-      const reports = await web3Service.getAllChainsBalances(wallet.address, tracked, report => {
-        if (balanceGeneration.current === generation) setChainBalances(previous => ({ ...previous, [report.chainId]: report }));
-      });
-      if (balanceGeneration.current !== generation) return;
-      setChainBalances(reports);
-      setBalanceError('');
-    } catch (err) {
-      if (balanceGeneration.current !== generation) return;
-      const message = err instanceof Error ? err.message : String(err);
-      setBalanceError(message);
-      systemLogService.logError('NETWORK', 'Portfolio Balance Refresh Failed', message);
-    } finally {
-      if (balanceGeneration.current === generation) {
-        balanceInFlight.current = false;
-        setIsLoadingBalances(false);
-      }
-    }
-  }, [wallet?.address]);
-
-  useEffect(() => {
-    setChainBalances({});
-    setBalanceError('');
-    loadAllBalances();
-    const interval = setInterval(loadAllBalances, 18000);
-    return () => { balanceGeneration.current++; balanceInFlight.current = false; clearInterval(interval); };
-  }, [loadAllBalances]);
 
   // Window Layout Update Handler
   const handleUpdateLayout = useCallback((id: string, updates: Partial<WindowLayout>) => {
@@ -229,10 +183,6 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
 
   return (
     <div className="flex-1 min-h-0 flex flex-col bg-background overflow-hidden relative select-none font-mono">
-      {balanceError && <p role="alert" className="shrink-0 px-4 py-2 text-xs text-red-300">
-        {balanceError} Displayed amounts have not been refreshed.
-      </p>}
-      
       {/* 1. TOP OVERVIEW CONTROLS STRIP */}
       <div className="min-h-11 px-4 py-1.5 gap-3 bg-surface border-b border-surface-border flex flex-wrap items-center justify-between shrink-0 select-text">
         
@@ -278,13 +228,7 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
             <span className="hidden sm:inline">Reset Layout</span>
           </button>
 
-          <button
-            onClick={onToggleOverview}
-            className="btn-tactile px-3.5 py-1.5 rounded-lg bg-theme-gradient text-slate-950 font-extrabold text-xs transition-all flex items-center gap-1.5 shadow-glow-primary cursor-pointer"
-          >
-            <span>Trading Terminal</span>
-            <ChevronRight className="w-3.5 h-3.5" />
-          </button>
+
         </div>
 
       </div>

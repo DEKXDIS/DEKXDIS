@@ -11,6 +11,7 @@ import {
   ArrowDownLeft
 } from 'lucide-react';
 import { TradeOrder, MarketPrice, TokenConfig } from '../types/trading';
+import { getPricePrecision } from '../utils/indicators';
 import { formatTokenDisplay } from '../utils/displayFormat';
 import { systemLogService } from '../services/systemLogService';
 
@@ -56,7 +57,7 @@ export const TradeMetrics: React.FC<TradeMetricsProps> = ({
   }, [pnlIssue, pnlScope, tokenSymbol, selectedChainId]);
 
   return (
-    <div className={`grid grid-cols-2 lg:grid-cols-[repeat(3,minmax(0,1fr))_minmax(280px,2fr)] gap-2.5 ${walletTradeCard ? 'xl:grid-cols-[repeat(3,minmax(0,1fr))_minmax(280px,2fr)_minmax(520px,2fr)]' : ''}`}>
+    <div className={`grid grid-cols-2 lg:grid-cols-[repeat(3,minmax(0,1fr))_minmax(440px,3fr)] gap-2.5 ${walletTradeCard ? '2xl:grid-cols-[repeat(3,minmax(0,1fr))_minmax(440px,3fr)_minmax(360px,2fr)]' : ''}`}>
       
       {/* 1. Total Volume */}
       <div title={metricsTitle} className="bg-surface/90 border border-surface-border rounded-xl px-3.5 py-2 flex items-center justify-between shadow-sm">
@@ -116,29 +117,32 @@ export const TradeMetrics: React.FC<TradeMetricsProps> = ({
       </div>
 
       {/* 4. Estimated PnL */}
-      <div title={metricsTitle} className="col-span-2 lg:col-span-1 bg-surface/90 border border-surface-border rounded-xl px-3.5 py-2 flex items-center justify-between shadow-sm">
+      <div title={metricsTitle} className="col-span-2 lg:col-span-1 bg-surface/90 border border-surface-border rounded-xl px-3.5 py-2 flex flex-wrap items-center justify-between gap-3 shadow-sm">
         <div className="flex items-center gap-2">
           <div className={`p-1 rounded-lg shrink-0 ${unrealizedPnlUsdt === null ? 'text-slate-400' : unrealizedPnlUsdt >= 0 ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
             {unrealizedPnlUsdt === null || unrealizedPnlUsdt >= 0 ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}
           </div>
-          <div className="flex items-center gap-4 whitespace-nowrap">
-            <div>
-            <span className="text-[10px] text-slate-400 font-medium uppercase tracking-wider block">
-              Unrealized PnL
-            </span>
+          <div className="whitespace-nowrap">
+            <span className="text-[10px] text-slate-400 font-medium uppercase tracking-wider block">Unrealized PnL</span>
             <div className={`text-sm font-bold font-mono leading-tight ${unrealizedPnlUsdt === null ? 'text-slate-400' : unrealizedPnlUsdt >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
               {unrealizedPnlUsdt === null ? 'Unavailable' : `${unrealizedPnlUsdt >= 0 ? '+' : '-'}$${Math.abs(unrealizedPnlUsdt).toFixed(2)}`}
               {unrealizedPnlUsdt !== null && <span className="text-[10px] font-mono ml-1.5">
                 ({pnlPercent >= 0 ? '+' : ''}{pnlPercent.toFixed(1)}%)
               </span>}
             </div>
-            </div>
-            <div>
-            <span className="text-[10px] text-slate-400 font-medium uppercase tracking-wider block">Realized PnL</span>
-            <div className={`text-sm font-bold font-mono leading-tight ${realizedPnlUsd === null ? 'text-slate-400' : realizedPnlUsd >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-              {realizedPnlUsd === null ? 'Unavailable' : `${realizedPnlUsd >= 0 ? '+' : '-'}$${Math.abs(realizedPnlUsd).toFixed(2)} USD`}
-            </div>
-            </div>
+          </div>
+        </div>
+        <div className="flex-1 min-w-0 text-center" title={selectedToken?.name || tokenSymbol}>
+          <div className="text-base font-bold text-theme-primary leading-tight break-words">{selectedToken?.name || tokenSymbol}</div>
+          <div className="text-xl font-bold font-mono text-white leading-tight break-all">
+            {Number.isFinite(marketPrice.price) && marketPrice.price > 0 ? `$${getPricePrecision(marketPrice.price).format(marketPrice.price)}` : 'Unavailable'}
+          </div>
+          {marketPrice.price > 0 && !priceFresh && <span className="text-[10px] text-amber-300">Last known</span>}
+        </div>
+        <div className="whitespace-nowrap">
+          <span className="text-[10px] text-slate-400 font-medium uppercase tracking-wider block">Realized PnL</span>
+          <div className={`text-sm font-bold font-mono leading-tight ${realizedPnlUsd === null ? 'text-slate-400' : realizedPnlUsd >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+            {realizedPnlUsd === null ? 'Unavailable' : `${realizedPnlUsd >= 0 ? '+' : '-'}$${Math.abs(realizedPnlUsd).toFixed(2)} USD`}
           </div>
         </div>
       </div>

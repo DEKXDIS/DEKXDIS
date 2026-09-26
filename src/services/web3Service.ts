@@ -78,6 +78,8 @@ export interface ChainBalanceReport {
   totalChainUsd: number | null;
   knownTotalChainUsd: number | null;
   nativePriceUsd: number | null;
+  balanceUpdatedAt?: number;
+  updatedAt?: number;
   isLoading: boolean;
   error?: string;
 }
@@ -624,19 +626,33 @@ export const web3Service = {
     trackedTokens: TokenConfig[] = [],
     onChainReport?: (report: ChainBalanceReport) => void,
   ): Promise<Record<number, ChainBalanceReport>> {
-    if (!address || !ethers.isAddress(address)) throw balanceReadFailure(DEFAULT_CHAIN_ID, new Error('Invalid wallet address'));
-    const reports = await Promise.all(Object.entries(SUPPORTED_CHAINS).map(async ([id, chainCfg]) => {
-      const chainId = Number(id);
+    const reports = await Promise.all(Object.keys(SUPPORTED_CHAINS).map(async id => {
+      const report = await this.getChainBalanceReport(address, Number(id), trackedTokens);
+      onChainReport?.(report);
+      return report;
+    }));
+    return Object.fromEntries(reports.map(report => [report.chainId, report]));
+  },
+
+  async getChainBalanceReport(
+    address: string,
+    chainId: number,
+    trackedTokens: TokenConfig[] = [],
+    onBalances?: (balances: Balances, allowances: AllowanceState) => void,
+  ): Promise<ChainBalanceReport> {
+      const chainCfg = getChainConfig(chainId);
       let report: ChainBalanceReport;
       try {
         const chainTracked = trackedTokens.filter(token => (token.chainId || DEFAULT_CHAIN_ID) === chainId);
         const unique = chainTracked.filter((token, index) => index === chainTracked.findIndex(other => other.address.toLowerCase() === token.address.toLowerCase()));
-        const batched = await this.getBalancesAndAllowancesBatched(address, chainId, unique);
+        const { balances, allowances } = await this.getBalancesAndAllowances(address, chainId, 0, unique, true);
+        // Trading can consume exact quantities before display prices finish.
+        onBalances?.(balances, allowances);
         const wrappedAddr = chainCfg.nativeToken.wrappedAddress.toLowerCase();
         const usdtAddr = chainCfg.usdtToken.address.toLowerCase();
-        const nativeBalance = batched.nativeBalance;
-        const wrappedBalance = batched.tokenBalances[wrappedAddr] || '0';
-        const usdtBalance = batched.tokenBalances[usdtAddr] || '0';
+        const nativeBalance = balances.bnb;
+        const wrappedBalance = balances.wbnb;
+        const usdtBalance = balances.usdt;
         const missingPrices: string[] = [];
         const readPrice = async (symbol: string, fetchPrice: () => Promise<number>): Promise<number | null> => {
           try {
@@ -657,7 +673,7 @@ export const web3Service = {
         const usdtUsd = Number(usdtBalance);
         const tokens: ChainTokenBalance[] = await Promise.all(unique.filter(token =>
           token.address.toLowerCase() !== wrappedAddr && token.address.toLowerCase() !== usdtAddr).map(async token => {
-          const balance = batched.tokenBalances[token.address.toLowerCase()] || '0';
+          const balance = balances.tokenBalances![token.address.toLowerCase()];
           const priceUsd = Number(balance) > 0 ? await readPrice(token.symbol, async () =>
             (await marketDataService.fetchTokenPrice(token.address, chainId, token.binanceSymbol)).price) : 0;
           return { token, balance, priceUsd, usdValue: value(balance, priceUsd) };
@@ -668,6 +684,7 @@ export const web3Service = {
           usdtBalance, usdtUsd, usdcBalance: '0.00', usdcUsd: 0, tokens,
           totalChainUsd: values.some(amount => amount === null) ? null : knownTotalChainUsd,
           knownTotalChainUsd, nativePriceUsd: nativePrice, isLoading: false,
+          balanceUpdatedAt: balances.lastUpdated, updatedAt: Date.now(),
           ...(missingPrices.length ? { error: 'USD prices unavailable: ' + missingPrices.join(', ') } : {}),
         };
       } catch (error) {
@@ -677,10 +694,7 @@ export const web3Service = {
           usdtBalance: null, usdtUsd: null, usdcBalance: null, usdcUsd: null, tokens: [], totalChainUsd: null,
           knownTotalChainUsd: null, nativePriceUsd: null, isLoading: false, error: message };
       }
-      onChainReport?.(report);
       return report;
-    }));
-    return Object.fromEntries(reports.map(report => [report.chainId, report]));
   },
 
   async getMultiChainGasFees(): Promise<Record<number, ChainGasFeeInfo>> {

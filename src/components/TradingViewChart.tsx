@@ -61,6 +61,7 @@ interface TradingViewChartProps {
   onPriceSelected?: (price: number, candleTime?: number) => void;
   onCancelOrder?: (orderId: string) => void;
   livePrice?: number;
+  change24h?: number;
   nativePriceSnapshot?: NativeUsdSnapshot;
   onCandlesUpdated?: (candles: CandlestickData<Time>[]) => void;
   onIntervalChange?: (interval: string) => void;
@@ -79,6 +80,7 @@ export const TradingViewChart: React.FC<TradingViewChartProps> = memo(({
   onPriceSelected,
   onCancelOrder,
   livePrice,
+  change24h = NaN,
   nativePriceSnapshot,
   onCandlesUpdated,
   onIntervalChange,
@@ -1504,6 +1506,14 @@ export const TradingViewChart: React.FC<TradingViewChartProps> = memo(({
           </span>
           <span className="text-white font-bold">
             ${livePrice ? getPricePrecision(livePrice).format(livePrice) : '--.--'}
+          </span>
+          <span className={`font-semibold ${
+            !livePrice || !Number.isFinite(change24h) ? 'text-slate-400'
+              : change24h >= 0 ? 'text-theme-primary' : 'text-theme-secondary'
+          }`}>
+            24h: {livePrice && Number.isFinite(change24h)
+              ? `${change24h >= 0 ? '+' : ''}${change24h.toFixed(2)}%`
+              : 'Unavailable'}
           </span>
           {hoverPrice !== null && (
             <>

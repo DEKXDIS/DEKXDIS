@@ -25,10 +25,6 @@ import { rpcService, RPC_PROVIDER_PRESETS, RpcHealthResult } from '../services/r
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  slippage: number;
-  onUpdateSlippage: (val: number) => void;
-  stopLossSlippage: number;
-  onUpdateStopLossSlippage: (val: number) => void;
   currentTheme?: ThemeId;
   onSelectTheme?: (themeId: ThemeId) => void;
 }
@@ -36,10 +32,6 @@ interface SettingsModalProps {
 export const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen,
   onClose,
-  slippage,
-  onUpdateSlippage,
-  stopLossSlippage,
-  onUpdateStopLossSlippage,
   currentTheme = 'blue-purple',
   onSelectTheme,
 }) => {
@@ -415,62 +407,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
             </div>
           )}
-
-          {/* 3. Standard Slippage Tolerance */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <label className="block text-xs font-semibold text-slate-300">
-                Trade Slippage Tolerance (Standard)
-              </label>
-              <span className="text-[10px] text-theme-primary font-bold">{slippage}%</span>
-            </div>
-            <div className="grid grid-cols-4 gap-2">
-              {[0.1, 0.5, 1.0, 2.0].map((val) => (
-                <button
-                  key={val}
-                  onClick={() => onUpdateSlippage(val)}
-                  className={`btn-tactile py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
-                    slippage === val
-                      ? 'bg-theme-primary text-slate-950 shadow-glow-primary font-extrabold'
-                      : 'bg-background border border-surface-border text-slate-300 hover:text-white hover:border-slate-600'
-                  }`}
-                >
-                  {val}%
-                </button>
-              ))}
-            </div>
-            <p className="text-[11px] text-slate-500 mt-1.5">
-              Standard 1-push trades revert if price moves more than {slippage}% unfavorably before settlement.
-            </p>
-          </div>
-
-          {/* 4. Emergency Stop-Loss Slippage Tolerance */}
-          <div className="p-3.5 rounded-xl bg-rose-950/20 border border-rose-500/30">
-            <div className="flex items-center justify-between mb-2">
-              <label className="block text-xs font-semibold text-rose-300 flex items-center gap-1.5">
-                <span>Emergency Stop-Loss Slippage</span>
-              </label>
-              <span className="text-[10px] text-rose-400 font-bold">{stopLossSlippage}%</span>
-            </div>
-            <div className="grid grid-cols-4 gap-2">
-              {[1.0, 2.0, 3.0, 5.0].map((val) => (
-                <button
-                  key={val}
-                  onClick={() => onUpdateStopLossSlippage(val)}
-                  className={`btn-tactile py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
-                    stopLossSlippage === val
-                      ? 'bg-rose-500 text-slate-950 shadow-glow-red font-extrabold'
-                      : 'bg-background border border-rose-500/30 text-rose-200 hover:text-white hover:border-rose-400'
-                  }`}
-                >
-                  {val}%
-                </button>
-              ))}
-            </div>
-            <p className="text-[11px] text-rose-300/70 mt-1.5">
-              Applied exclusively to Stop-Loss executions to guarantee fast fills during steep market drops without affecting normal trades.
-            </p>
-          </div>
 
           {/* 6. Protocol Settlement Network Information */}
           <div className="p-3.5 rounded-xl bg-background border border-surface-border flex items-center justify-between">

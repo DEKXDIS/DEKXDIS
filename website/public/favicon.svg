@@ -1,6 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <!-- DEKXDIS hex-shield logomark: phosphor green on void black -->
-  <rect width="32" height="32" rx="6" fill="#050807"/>
-  <path d="M16 3.2l11 4.4v8.7c0 6.7-4.7 11.4-11 13.3-6.3-1.9-11-6.6-11-13.3V7.6z" fill="none" stroke="#35f2a2" stroke-width="2" stroke-linejoin="round"/>
-  <path d="M21.5 16l-2.75 4.76h-5.5L10.5 16l2.75-4.76h5.5z" fill="none" stroke="#00ff9c" stroke-width="1.6" stroke-linejoin="round"/>
-</svg>

@@ -2,7 +2,7 @@ import { STRATEGIES_ENABLED } from '../config/releaseFeatures';
 import React, { useState, useRef, useEffect } from 'react';
 import { UpdateNotice } from './UpdateNotice';
 import { UserGuideLink } from './UserGuideLink';
-import { ShieldCheck, RefreshCw, LayoutGrid, Settings, ChevronDown, Plus, Globe, Sparkles, Pin, LayoutDashboard, Palette, Zap, TrendingUp } from 'lucide-react';
+import { ShieldCheck, RefreshCw, LayoutGrid, Settings, ChevronDown, Plus, Globe, Sparkles, Pin, LayoutDashboard, Palette, Zap, TrendingUp, Wallet, ListOrdered, BarChart2 } from 'lucide-react';
 import { MarketPrice, TokenConfig, getDefaultTokensForChain } from '../types/trading';
 import { useFreshTimestamp } from '../hooks/useFreshTimestamp';
 import { SUPPORTED_CHAINS, getChainConfig } from '../types/chains';
@@ -33,6 +33,14 @@ interface HeaderProps {
   onToggleOverview?: () => void;
   onToggleLadder?: () => void;
   isLadderOpen?: boolean;
+  isWalletTradeOpen: boolean;
+  onToggleWalletTrade: () => void;
+  walletTradeButtonRef: React.RefObject<HTMLButtonElement>;
+  walletTradePanelId: string;
+  isOrdersOpen: boolean;
+  onToggleOrders: () => void;
+  isChartOpen: boolean;
+  onToggleChart: () => void;
 }
 
 
@@ -58,6 +66,14 @@ export const Header: React.FC<HeaderProps> = ({
   onToggleOverview,
   onToggleLadder,
   isLadderOpen = false,
+  isWalletTradeOpen,
+  onToggleWalletTrade,
+  walletTradeButtonRef,
+  walletTradePanelId,
+  isOrdersOpen,
+  onToggleOrders,
+  isChartOpen,
+  onToggleChart,
 }) => {
   const [isChainOpen, setIsChainOpen] = useState(false);
   const [isTokenOpen, setIsTokenOpen] = useState(false);
@@ -70,6 +86,8 @@ export const Header: React.FC<HeaderProps> = ({
   const tokenRef = useRef<HTMLDivElement>(null);
 
   const activeChainConfig = getChainConfig(selectedChainId);
+  const hasChange24h = marketPrice.price > 0 && Number.isFinite(marketPrice.change24h);
+  const hasVolume24h = marketPrice.price > 0 && Number.isFinite(marketPrice.volume24h) && marketPrice.volume24h >= 0;
   const isPositive = marketPrice.change24h >= 0;
   const priceFresh = useFreshTimestamp(marketPrice.lastUpdated) && marketPrice.price > 0;
 
@@ -126,9 +144,13 @@ export const Header: React.FC<HeaderProps> = ({
     (t: TokenConfig) => t.symbol.toLowerCase().includes(query) || t.name.toLowerCase().includes(query) || t.address.toLowerCase().includes(query)
   );
 
+  const toggleClass = (active: boolean) => `btn-tactile shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border transition-all text-xs font-medium cursor-pointer ${active
+    ? 'bg-emerald-500/20 border-emerald-500/60 text-emerald-400 font-bold shadow-[0_0_10px_rgba(16,185,129,0.2)]'
+    : 'bg-slate-900 border-slate-700 text-slate-300 hover:text-white hover:border-emerald-500/50 shadow-sm'}`;
+
   return (
     <header className="relative border-b border-surface-border bg-surface/95 backdrop-blur-md px-3 lg:px-6 py-2.5 shrink-0 z-[100]">
-      <div className="flex flex-col md:flex-row items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         
         {/* Left: Brand + Chain Selector + Global Token Selector + Overview */}
         <div className="flex items-center gap-2.5 w-full md:w-auto justify-between md:justify-start flex-wrap">
@@ -366,22 +388,6 @@ export const Header: React.FC<HeaderProps> = ({
             )}
           </div>
 
-          {/* Overview Dashboard Toggle Button */}
-          {onToggleOverview && (
-            <button
-              onClick={onToggleOverview}
-              className={`btn-tactile flex items-center justify-center gap-2 px-4 py-1.5 rounded-lg text-xs font-bold font-mono transition-all min-w-[130px] cursor-pointer ${
-                isOverviewOpen
-                  ? 'bg-theme-gradient text-slate-950 font-extrabold shadow-glow-primary'
-                  : 'bg-slate-900 border border-slate-700 text-slate-300 hover:text-white hover:border-theme-primary hover:bg-slate-850 shadow-sm'
-              }`}
-              title={isOverviewOpen ? 'Return to Trading Workspace' : 'Open Multi-Chain Portfolio Overview'}
-            >
-              <LayoutDashboard className="w-4 h-4 shrink-0" />
-              <span>{isOverviewOpen ? 'Dashboard Active' : 'Overview'}</span>
-            </button>
-          )}
-
           <UserGuideLink />
 
           {/* Quick Actions (Mobile) */}
@@ -411,8 +417,30 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
 
+        <div role="group" aria-label="Workspace windows" className="flex items-center gap-1.5 max-w-full overflow-x-auto py-1">
+          {onToggleOverview && <button type="button" onClick={onToggleOverview}
+            className={toggleClass(isOverviewOpen)} title={isOverviewOpen ? 'Return to token workspace' : 'Open portfolio overview'}>
+            <LayoutDashboard className="w-3.5 h-3.5" />
+            <span>{isOverviewOpen ? 'Token Workspace' : 'Overview'}</span>
+          </button>}
+          <button ref={walletTradeButtonRef} type="button" onClick={onToggleWalletTrade}
+            aria-expanded={isWalletTradeOpen} aria-controls={walletTradePanelId} className={toggleClass(isWalletTradeOpen)}>
+            <Wallet className="w-3.5 h-3.5" /><span>Wallet/Trade</span>
+          </button>
+          {STRATEGIES_ENABLED && onToggleLadder && <button type="button" onClick={onToggleLadder}
+            aria-pressed={isLadderOpen} className={toggleClass(isLadderOpen)}>
+            <TrendingUp className="w-3.5 h-3.5" /><span>Automation</span>
+          </button>}
+          <button type="button" onClick={onToggleOrders} aria-pressed={isOrdersOpen} className={toggleClass(isOrdersOpen)}>
+            <ListOrdered className="w-3.5 h-3.5" /><span>Trade &amp; Intent</span>
+          </button>
+          <button type="button" onClick={onToggleChart} aria-pressed={isChartOpen} className={toggleClass(isChartOpen)}>
+            <BarChart2 className="w-3.5 h-3.5" /><span>Charts</span>
+          </button>
+        </div>
+
         {/* Center: Live Market Price Ticker */}
-        <div className="flex items-center gap-3 bg-slate-950/80 border border-surface-border px-3 py-1 rounded-xl">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 bg-slate-950/80 border border-surface-border px-3 py-1 rounded-xl">
           <div className="flex items-center gap-1.5 font-mono text-xs">
             <span className="text-slate-400">{selectedToken.symbol}/USD:</span>
             <span className="font-bold text-white">
@@ -422,13 +450,25 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
 
           <div
-            className={`flex items-center gap-0.5 text-[11px] font-mono font-semibold px-1.5 py-0.2 rounded ${
-              isPositive 
+            className={`flex items-center gap-1 whitespace-nowrap text-[11px] font-mono font-semibold px-1.5 py-0.2 rounded ${
+              !hasChange24h ? 'text-slate-400 border border-surface-border' : isPositive
                 ? 'bg-theme-primary-10 text-theme-primary border border-theme-primary-30' 
                 : 'bg-theme-secondary-10 text-theme-secondary border border-theme-secondary-30'
             }`}
           >
-            {isPositive ? '+' : ''}{marketPrice.change24h.toFixed(2)}%
+            <span>24h Change:</span>
+            <span>{hasChange24h ? `${isPositive ? '+' : ''}${marketPrice.change24h.toFixed(2)}%` : 'Unavailable'}</span>
+          </div>
+
+          <div
+            className="whitespace-nowrap text-[11px] font-mono text-slate-400"
+            title={hasVolume24h
+              ? `24h Volume: ${marketPrice.volume24h.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 })} USD. Token-only volume is estimated using the current price.`
+              : '24-hour volume is unavailable from the current feed.'}
+          >
+            24h Volume: <strong className="text-slate-300">{hasVolume24h
+              ? `${marketPrice.volume24h.toLocaleString('en-US', { style: 'currency', currency: 'USD', notation: 'compact', maximumFractionDigits: 2 })} USD`
+              : 'Unavailable'}</strong>
           </div>
 
           <div className="hidden sm:flex items-center gap-2 text-[10px] font-mono text-slate-400 border-l border-surface-border pl-2">
@@ -457,37 +497,9 @@ export const Header: React.FC<HeaderProps> = ({
           )}
         </div>
 
-        {/* Right: Network Status (BORDERLESS) & Workspace Controls */}
+        {/* Right: Workspace Controls */}
         <div className="hidden md:flex items-center gap-3">
-          {/* Borderless Status Badges */}
-          <div className="flex items-center gap-3 text-[11px] font-mono text-slate-400">
-            <div className={`flex items-center gap-1.5 ${priceFresh ? 'text-theme-primary' : 'text-amber-300'}`}>
-              <span className="relative flex h-2 w-2">
-                {priceFresh && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-theme-primary opacity-75"></span>}
-                <span className={`relative inline-flex rounded-full h-2 w-2 ${priceFresh ? 'bg-theme-primary' : 'bg-amber-300'}`}></span>
-              </span>
-              <span>{activeChainConfig.shortName} · {priceFresh ? 'Prices live' : marketPrice.price > 0 ? 'Price stale' : 'Price unavailable'}</span>
-            </div>
-
-          </div>
-
-          {/* Action Button Controls */}
           <div className="flex items-center gap-1.5 border-l border-surface-border pl-3">
-            {STRATEGIES_ENABLED && onToggleLadder && (
-              <button
-                onClick={onToggleLadder}
-                className={`btn-tactile flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border transition-all text-xs font-medium cursor-pointer shadow-sm ${
-                  isLadderOpen
-                    ? 'bg-emerald-500/20 border-emerald-500/60 text-emerald-400 font-bold'
-                    : 'bg-slate-900 border-slate-700 text-slate-300 hover:text-white hover:border-emerald-500/50'
-                }`}
-                title="Toggle Automation"
-              >
-                <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
-                <span className="hidden sm:inline">Automation</span>
-              </button>
-            )}
-
             {onOpenThemeModal && (
               <button
                 onClick={onOpenThemeModal}

@@ -224,29 +224,12 @@ export const cowProtocol = {
   async signAndSubmitOrder(
     quoteData: CowQuoteResponse,
     signer: ethers.Signer & { address: string },
-    slippageTolerancePercent: number = 0.5,
     chainId: number = DEFAULT_CHAIN_ID,
     onPrepared?: (uid: string) => Promise<void>
   ): Promise<string> {
-    if (!Number.isFinite(slippageTolerancePercent) || slippageTolerancePercent < 0 || slippageTolerancePercent >= 100) throw new Error('Invalid slippage');
     const { quote } = quoteData;
     if (quote.sellToken.toLowerCase() === quote.buyToken.toLowerCase()) throw new Error('Cannot trade a token for itself');
-    const chainConfig = getChainConfig(chainId);
-
     await this.ensureAppDataRegistered(chainId);
-
-    // Apply slippage tolerance to buyAmount (for sell orders) or sellAmount (for buy orders)
-    let adjustedBuyAmount = BigInt(quote.buyAmount);
-    let adjustedSellAmount = BigInt(quote.sellAmount);
-
-    const slippageBps = BigInt(Math.floor(slippageTolerancePercent * 100)); // e.g. 0.5% = 50 bps
-    const bpsBase = 10000n;
-
-    if (quote.kind === 'sell') {
-      adjustedBuyAmount = (adjustedBuyAmount * (bpsBase - slippageBps)) / bpsBase;
-    } else {
-      adjustedSellAmount = (adjustedSellAmount * (bpsBase + slippageBps)) / bpsBase;
-    }
 
     const receiverAddress = quote.receiver && quote.receiver !== ethers.ZeroAddress 
       ? quote.receiver.toLowerCase() 
@@ -256,8 +239,8 @@ export const cowProtocol = {
       sellToken: quote.sellToken.toLowerCase(),
       buyToken: quote.buyToken.toLowerCase(),
       receiver: receiverAddress,
-      sellAmount: adjustedSellAmount.toString(),
-      buyAmount: adjustedBuyAmount.toString(),
+      sellAmount: BigInt(quote.sellAmount).toString(),
+      buyAmount: BigInt(quote.buyAmount).toString(),
       validTo: quote.validTo,
       appData: quote.appDataHash || DEKXDIS_APP_DATA_HEX,
       feeAmount: '0', // MANDATORY PROTOCOL INVARIANT: feeAmount must explicitly be '0'
