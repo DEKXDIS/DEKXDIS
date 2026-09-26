@@ -1,6 +1,5 @@
 import { ModalDialog } from './ModalDialog';
 import React, { useState, useEffect } from 'react';
-import { BetaAccess } from './BetaAccess';
 import { 
   X, 
   Sliders, 
@@ -427,7 +426,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </div>
 
           {/* Close Button */}
-          <BetaAccess />
           <button
             onClick={onClose}
             className="btn-tactile w-full py-3 rounded-xl bg-theme-gradient text-slate-950 font-extrabold text-xs shadow-glow-primary transition-all shrink-0 cursor-pointer"

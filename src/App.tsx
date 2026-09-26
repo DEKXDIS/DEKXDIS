@@ -1,4 +1,4 @@
-import { STRATEGIES_ENABLED, getStrategiesEnabled, subscribeReleaseFeatures } from './config/releaseFeatures';
+import { STRATEGIES_ENABLED } from './config/releaseFeatures';
 import { bridgeJournal } from './services/bridgeJournal';
 import { nativeStore } from './services/nativeStore';
 import { executionEngine, exclusive } from './services/executionEngine';
@@ -55,7 +55,6 @@ import { CandlestickData, Time } from 'lightweight-charts';
 import { formatAssetDisplay, formatTokenDisplay } from './utils/displayFormat';
 
 export const App: React.FC = () => {
-  const strategiesEnabled = useSyncExternalStore(subscribeReleaseFeatures, getStrategiesEnabled);
   // Global Chain & Token States
   const [selectedChainId, setSelectedChainId] = useState<number>(() => storageService.getSelectedChainId());
   const [wallet, setWallet] = useState<WalletState | null>(() => storageService.getWallet());
@@ -296,7 +295,7 @@ export const App: React.FC = () => {
         zIndex: 15,
       },
     };
-  }, [strategiesEnabled]);
+  }, []);
 
   // State for Impulse Ladder Window toggle (defaults to open on startup)
   const [isLadderOpen, setIsLadderOpen] = useState<boolean>(() => STRATEGIES_ENABLED && storageService.getIsLadderOpen());
@@ -347,16 +346,6 @@ export const App: React.FC = () => {
     }
     return defaults;
   });
-
-  const wasStrategiesEnabled = useRef(strategiesEnabled);
-  useEffect(() => {
-    if (strategiesEnabled && !wasStrategiesEnabled.current) {
-      setWindows(getDefaultLayouts(window.innerWidth, window.innerHeight - 100));
-      setIsLadderOpen(true);
-      setIsOverviewOpen(false);
-    }
-    wasStrategiesEnabled.current = strategiesEnabled;
-  }, [strategiesEnabled, getDefaultLayouts]);
 
   const [topZIndex, setTopZIndex] = useState(25);
 
