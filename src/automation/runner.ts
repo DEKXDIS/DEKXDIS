@@ -15,10 +15,11 @@ import { openBuyCount, parseDecision, RESPONSE_FORMAT, tradePacket, workspaceOrd
 import { workspaceKey, validateSettings, type Workspace, type AutomationSettings } from './settings';
 import { assertBuyAllowance, tradingAllowance } from './allowance';
 import { readLatestResponse, saveLatestResponse, type LatestResponse } from './latestResponse';
+import type { LlmSession } from './llmProfiles';
 
 export interface ActiveWorkspace extends Workspace { tokenAddress: string; running: boolean }
-export interface RunStatus extends LatestResponse { running: boolean; busy: boolean; message: string; checkedAt?: number; nextAt?: number }
-type Run = { workspace: Workspace; wallet: WalletState; settings: AutomationSettings; abort: AbortController;
+export interface RunStatus extends LatestResponse { running: boolean; busy: boolean; message: string; checkedAt?: number; nextAt?: number; llmName?: string; modelId?: string }
+type Run = { workspace: Workspace; wallet: WalletState; settings: AutomationSettings; abort: AbortController; sessionId: string;
   status: RunStatus; timer?: ReturnType<typeof setTimeout>; lastError?: string };
 const runs = new Map<string, Run>();
 const listeners = new Map<string, Set<() => void>>();
@@ -71,7 +72,7 @@ async function cycle(key: string, run: Run) {
       tradingAllowance: tradingAllowance(history, run.workspace, run.settings.maxFundsUsd),
       ...tradePacket(history, run.workspace, run.settings.historyCount, chart.nativePriceSnapshot) };
     update(key, run, { message: 'Waiting for model' });
-    const response = await invoke<string>('automation_decide', { model: run.settings.model,
+    const response = await invoke<string>('automation_decide', { sessionId: run.sessionId,
       instructions: `${run.settings.prompt}\n\nResponse format:\n${RESPONSE_FORMAT}`, packet, image });
     check(run);
     const latestResponse = { lastResponse: response, respondedAt: Date.now() };
@@ -143,7 +144,7 @@ export const automation = {
     listeners.get(key)!.add(listener);
     return () => { const set = listeners.get(key); set?.delete(listener); if (!set?.size) listeners.delete(key); };
   },
-  start(workspace: Workspace, settings: AutomationSettings) {
+  async start(workspace: Workspace, settings: AutomationSettings) {
     validateSettings(settings);
     assertTradingPair(workspace.token.address, workspace.chainId);
     const key = workspaceKey(workspace.owner, workspace.chainId, workspace.token.address);
@@ -152,12 +153,27 @@ export const automation = {
     const wallet = nativeStore.getWallet();
     if (!wallet || wallet.needsBackup) throw new Error('Select and back up your wallet first');
     const run: Run = { workspace: { ...workspace, token: { ...workspace.token } }, wallet: { ...wallet }, settings: { ...settings },
-      abort: new AbortController(), status: { ...this.status(key), running: true, busy: false, nextAt: undefined, message: 'Starting' } };
-    check(run); runs.set(key, run); publishActive(); void cycle(key, run);
+      abort: new AbortController(), sessionId: crypto.randomUUID(),
+      status: { ...this.status(key), running: true, busy: true, nextAt: undefined, llmName: undefined, modelId: undefined, message: 'Opening LLM configuration' } };
+    check(run); runs.set(key, run); publishActive(); update(key, run, {});
+    try {
+      const selected = await invoke<LlmSession>('automation_session_open', { profileId: settings.llmProfileId, sessionId: run.sessionId });
+      check(run);
+      update(key, run, { llmName: selected.name, modelId: selected.model });
+      void cycle(key, run);
+    } catch (error) {
+      const wasStopped = run.abort.signal.aborted;
+      run.abort.abort();
+      void invoke('automation_session_close', { sessionId: run.sessionId }).catch(() => {});
+      update(key, run, { running: false, busy: false, message: wasStopped ? 'Stopped' : String(error instanceof Error ? error.message : error) });
+      publishActive();
+      if (!wasStopped) throw error;
+    }
   },
   stop(key: string) {
     const run = runs.get(key); if (!run) return;
     run.abort.abort(); clearTimeout(run.timer);
+    void invoke('automation_session_close', { sessionId: run.sessionId }).catch(() => {});
     update(key, run, { running: false, nextAt: undefined, message: 'Stopped' }); publishActive();
   },
   stopAll() { for (const key of runs.keys()) this.stop(key); },

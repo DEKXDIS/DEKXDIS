@@ -2,13 +2,13 @@ import type { ChartUserSettings, TokenConfig } from '../types/trading';
 
 export const workspaceKey = (owner: string, chain: number, token: string) => `${owner.toLowerCase()}:${chain}:${token.toLowerCase()}`;
 export interface AutomationSettings {
-  prompt: string; model: string; intervalSeconds: number; tradeIntervalSeconds: number;
+  prompt: string; llmProfileId: string; intervalSeconds: number; tradeIntervalSeconds: number;
   maxOpenBuys: number; amountMode: 'fixed' | 'model'; amount: string; amountUnit: 'usd' | 'token'; historyCount: number;
   maxFundsUsd: string;
 }
 export const defaultSettings: AutomationSettings = {
   prompt: 'place two buy orders above the support level and two below.  sell the orders when it is close to a resistance.  you can save one for a break out if you chose. if buy orders get stale you can cancel and replace them, stale is at least 60 candles old, and the token is ranging in a higher price range.  do not include tp or sl with the orders.',
-  model: 'gpt-6-luna', intervalSeconds: 60, tradeIntervalSeconds: 0,
+  llmProfileId: '', intervalSeconds: 60, tradeIntervalSeconds: 0,
   maxOpenBuys: 4, amountMode: 'fixed', amount: '10', amountUnit: 'usd', historyCount: 20, maxFundsUsd: '',
 };
 const prefix = 'dekxdis_automation_settings_v1:';
@@ -17,7 +17,8 @@ export function readSettings(key: string): AutomationSettings {
   catch { return { ...defaultSettings }; }
 }
 export function validateSettings(s: AutomationSettings) {
-  if (!s.prompt.trim() || !s.model.trim()) throw new Error('Enter your instructions and an image-capable model ID');
+  if (!s.prompt.trim()) throw new Error('Enter your strategy instructions');
+  if (!s.llmProfileId?.trim()) throw new Error('Configure an LLM for this strategy first');
   for (const [label, value, minimum] of [ ['Check interval', s.intervalSeconds, 1], ['Time between trades', s.tradeIntervalSeconds, 0],
     ['Maximum open buys', s.maxOpenBuys, 0], ['Recent history', s.historyCount, 0] ] as const) {
     if (!Number.isSafeInteger(value) || value < minimum) throw new Error(`${label} must be a whole number of at least ${minimum}`);
@@ -42,6 +43,11 @@ export function parseSettingsDraft(draft: SettingsDraft): AutomationSettings {
 export function saveSettings(key: string, settings: AutomationSettings) {
   // Only the form values live here. No images, packets, decisions, orders or run state.
   localStorage.setItem(prefix + key, JSON.stringify(settings));
+}
+export function saveProfileSelection(key: string, llmProfileId: string) {
+  // Selecting a model does not implicitly save unrelated edits in the strategy form.
+  const settings = readSettings(key);
+  localStorage.setItem(prefix + key, JSON.stringify({ ...settings, llmProfileId }));
 }
 export interface ChartView extends ChartUserSettings { width?: number; height?: number; candleCount?: number }
 const viewKey = (key: string) => 'dekxdis_chart_view_v1:' + key;

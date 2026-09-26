@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
-import { invoke } from '@tauri-apps/api/core';
 import type { TokenConfig, TradeOrder, WalletState } from '../types/trading';
 import { automation } from './runner';
-import { readSettings, saveSettings, settingsDraft, parseSettingsDraft, workspaceKey, type SettingsDraft } from './settings';
+import { readSettings, saveSettings, saveProfileSelection, settingsDraft, parseSettingsDraft, workspaceKey, type SettingsDraft } from './settings';
+import { emptyProfiles, llmProfiles } from './llmProfiles';
+import { LlmConfigurationModal } from './LlmConfigurationModal';
 import { openBuyCount, RESPONSE_FORMAT } from './packet';
 import { tradingAllowance } from './allowance';
 import { storageService } from '../services/storageService';
@@ -14,20 +15,36 @@ interface Props { selectedToken: TokenConfig; selectedChainId: number; wallet: W
 export function AutomationWindow({ selectedToken: token, selectedChainId: chainId, wallet, orders, onRequireWallet }: Props) {
   const key = workspaceKey(wallet?.address || 'preview', chainId, token.address);
   const [settings, setSettings] = useState(() => settingsDraft(readSettings(key)));
-  const [apiKey, setApiKey] = useState('');
-  const [keySaved, setKeySaved] = useState(false);
+  const [profiles, setProfiles] = useState(emptyProfiles);
+  const [profilesReady, setProfilesReady] = useState(false);
+  const [profilesLoading, setProfilesLoading] = useState(true);
+  const [profileReload, setProfileReload] = useState(0);
+  const [configuring, setConfiguring] = useState(false);
   const [message, setMessage] = useState('');
-  const [savingKey, setSavingKey] = useState(false);
   const subscribe = useCallback((fn: () => void) => automation.subscribeWorkspace(key, fn), [key]);
   const status = useSyncExternalStore(subscribe, () => automation.status(key));
-  useEffect(() => { let current = true; invoke<boolean>('automation_key_status').then(value => { if (current) setKeySaved(value); }).catch(() => {});
-    return () => { current = false; }; }, []);
+  useEffect(() => {
+    let current = true;
+    setProfilesLoading(true);
+    llmProfiles.list().then(value => {
+      if (!current) return;
+      setProfiles(value); setProfilesReady(true); setMessage('');
+      const savedId = readSettings(key).llmProfileId;
+      setSettings(previous => ({ ...previous, llmProfileId: previous.llmProfileId || savedId || value.defaultProfileId || '' }));
+    }).catch(error => { if (current) setMessage(String(error instanceof Error ? error.message : error)); })
+      .finally(() => { if (current) setProfilesLoading(false); });
+    return () => { current = false; };
+  }, [key, profileReload]);
+  const selectedProfile = profiles.profiles.find(profile => profile.id === settings.llmProfileId);
   const field = <K extends keyof SettingsDraft>(name: K, value: SettingsDraft[K]) => setSettings(s => ({ ...s, [name]: value }));
   const save = () => { const value = parseSettingsDraft(settings); saveSettings(key, value); return value; };
-  const start = () => {
+  const start = async () => {
     if (!wallet) { onRequireWallet(); return; }
-    try { if (!keySaved) throw new Error('Save an OpenAI API key first'); const value = save();
-      automation.start({ owner: wallet.address, token, chainId }, value); setMessage(''); }
+    try {
+      if (!selectedProfile) throw new Error('Configure an LLM for this strategy first');
+      if (!selectedProfile.ready) throw new Error('Save an API key for the selected LLM configuration first');
+      const value = save();
+      await automation.start({ owner: wallet.address, token, chainId }, value); setMessage(''); }
     catch (error) { setMessage(String(error instanceof Error ? error.message : error)); }
   };
   const inputClass = 'w-full rounded-lg border border-surface-border bg-background px-2 py-1.5 text-slate-100 focus:outline-none focus:border-theme-primary';
@@ -54,10 +71,14 @@ export function AutomationWindow({ selectedToken: token, selectedChainId: chainI
       <p className="text-slate-400">A bought position stays counted until all its tokens sell. Pending exits reserve tokens.</p>
     </div>
     <p>Each check uses this token’s chart, orders, positions and recent history. Enabled tokens keep running when you switch workspaces.</p>
-    <fieldset disabled={status.running} className="space-y-3 disabled:opacity-70">
+    <div className="flex items-center justify-between gap-3 rounded-lg border border-surface-border bg-background p-2">
+      <div className="min-w-0"><p className="text-theme-primary break-words">{profilesLoading ? 'Loading LLM configurations…' : status.running && status.llmName ? status.llmName : selectedProfile?.config.name || 'No LLM selected'}</p>
+        {(status.running ? status.modelId : selectedProfile?.config.model) && <p className="text-slate-500 break-all">{status.running ? status.modelId : selectedProfile?.config.model}</p>}</div>
+      <button type="button" className={`${buttonClass} shrink-0`} disabled={profilesLoading} onClick={() => profilesReady ? setConfiguring(true) : setProfileReload(value => value + 1)}>{profilesReady ? 'Configure LLM' : 'Load configurations'}</button>
+    </div>
+    <fieldset disabled={status.running || profilesLoading} className="space-y-3 disabled:opacity-70">
       <label className="block space-y-1"><span>Instructions</span><textarea aria-label="Automation instructions" className={inputClass} rows={7}
         value={settings.prompt} onChange={e => field('prompt', e.target.value)} placeholder="Describe what you want the model to do with the chart and trades." /></label>
-      <label className="block space-y-1"><span>OpenAI model ID (must accept images)</span><input className={inputClass} value={settings.model} onChange={e => field('model', e.target.value)} /></label>
       <div className="grid grid-cols-2 gap-2">
         <label>Check every (seconds)<input type="number" min="1" className={inputClass} value={settings.intervalSeconds} onChange={e => field('intervalSeconds', e.target.value)} /></label>
         <label>Time between trades (seconds)<input type="number" min="0" className={inputClass} value={settings.tradeIntervalSeconds} onChange={e => field('tradeIntervalSeconds', e.target.value)} /></label>
@@ -79,9 +100,9 @@ export function AutomationWindow({ selectedToken: token, selectedChainId: chainI
         <p className="text-slate-400">Used: ${Number(allowance.usedUsd).toFixed(2)} · Pending buys: ${Number(allowance.reservedUsd).toFixed(2)}</p></>}
     </div>}
     <div className="flex gap-2">
-      <button className={buttonClass} disabled={status.running} onClick={() => { try { save(); setMessage('Settings saved'); } catch (error) { setMessage(String(error)); } }}>Save settings</button>
-      <button className={`btn-tactile rounded-lg px-4 py-2 font-semibold text-slate-950 disabled:opacity-50 ${status.running ? 'bg-theme-secondary shadow-glow-secondary' : 'bg-theme-primary shadow-glow-primary'}`} disabled={!status.running && status.busy}
-        onClick={() => status.running ? automation.stop(key) : start()}>{status.running ? 'Stop' : status.busy ? 'Finishing request…' : 'Start'}</button>
+      <button className={buttonClass} disabled={status.running || profilesLoading} onClick={() => { try { save(); setMessage('Settings saved'); } catch (error) { setMessage(String(error)); } }}>Save settings</button>
+      <button className={`btn-tactile rounded-lg px-4 py-2 font-semibold text-slate-950 disabled:opacity-50 ${status.running ? 'bg-theme-secondary shadow-glow-secondary' : 'bg-theme-primary shadow-glow-primary'}`} disabled={!status.running && (status.busy || profilesLoading || !profilesReady)}
+        onClick={() => status.running ? automation.stop(key) : void start()}>{status.running ? 'Stop' : status.busy ? 'Finishing request…' : 'Start'}</button>
     </div>
     <div role="status" className="rounded-lg border border-surface-border bg-background p-2 break-words"><p>{status.message}</p>
       {status.checkedAt && <p className="text-slate-500">Last check: {new Date(status.checkedAt).toLocaleTimeString()}</p>}
@@ -93,11 +114,11 @@ export function AutomationWindow({ selectedToken: token, selectedChainId: chainI
       {responseText ? <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] text-slate-300">{responseText}</pre>
         : <p className="text-slate-500">No response yet.</p>}
     </section>
-    <details><summary className="cursor-pointer">OpenAI API key · {keySaved ? 'Saved' : 'Not configured'}</summary>
-      <div className="mt-2 flex gap-2"><input type="password" aria-label="OpenAI API key" autoComplete="off" className={inputClass} value={apiKey} onChange={e => setApiKey(e.target.value)} />
-        <button disabled={!apiKey.trim() || savingKey} className={buttonClass} onClick={async () => { setSavingKey(true); try {
-          await invoke('automation_key_save', { key: apiKey }); setApiKey(''); setKeySaved(true); setMessage('API key saved');
-        } catch (error) { setMessage(String(error)); } finally { setSavingKey(false); } }}>Save key</button></div></details>
     <details><summary className="cursor-pointer">Model response format</summary><p className="mt-2 whitespace-pre-wrap text-slate-400">{RESPONSE_FORMAT}</p></details>
+    {configuring && <LlmConfigurationModal profiles={profiles} selectedId={settings.llmProfileId} running={status.running}
+      onProfilesChange={setProfiles} onClose={() => setConfiguring(false)} onUse={profile => {
+        if (automation.status(key).running) throw new Error('Stop this strategy before changing its LLM configuration');
+        saveProfileSelection(key, profile.id); field('llmProfileId', profile.id); setMessage('LLM configuration selected');
+      }} />}
   </div>;
 }
