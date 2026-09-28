@@ -1,5 +1,5 @@
 import { ModalDialog } from '../ModalDialog';
-import { assetTransferQuote } from '../../services/assetTransferQuote';
+import { assetTransferQuote, nativeSwapMessage } from '../../services/assetTransferQuote';
 import { AssetSendModal, AssetSendHistory } from './AssetSendModal';
 import { exclusive } from '../../services/executionEngine';
 import { bridgeJournal, bridgeStatusMessage } from '../../services/bridgeJournal';
@@ -212,7 +212,8 @@ export const AssetMatrixWindow: React.FC<AssetMatrixWindowProps> = ({
           hash = await web3Service.unwrapNative(wallet.address, bridgeQuote.fromAmount, token1.chainId);
           message = 'Unwrap confirmed';
         } else {
-          if (token1.category === 'native' || token2.category === 'native') throw new Error('Wrap native input first, or select wrapped output and unwrap after settlement.');
+          const routeError = nativeSwapMessage(token1, token2);
+          if (routeError) throw new Error(routeError);
           stage = 'Checking token balance and allowance';
           await web3Service.ensureAllowance(wallet.address, token1.token.address, ethers.parseUnits(bridgeQuote.fromAmount, token1.token.decimals), token1.chainId);
           const quote = bridgeQuote.cowQuote;
